@@ -34,6 +34,19 @@ const emptyRetrySpinner = document.getElementById('emptyRetrySpinner');
 const globalStatusPill = document.getElementById('globalStatusPill');
 const globalStatusText = document.getElementById('globalStatusText');
 
+// Elementos del Modal de Autenticación
+const authModalBackdrop = document.getElementById('authModalBackdrop');
+const authTitle = document.getElementById('authTitle');
+const authPromptText = document.getElementById('authPromptText');
+const inputAuthPassword = document.getElementById('inputAuthPassword');
+const checkAuthRemember = document.getElementById('checkAuthRemember');
+const authErrorMessage = document.getElementById('authErrorMessage');
+const btnAuthCancel = document.getElementById('btnAuthCancel');
+const btnAuthSubmit = document.getElementById('btnAuthSubmit');
+
+// Almacén de contraseñas de sesión desbloqueadas
+const sessionUnlockedPasswords = {};
+
 // Elementos del Popover
 const popoverThumb = document.getElementById('popoverThumb');
 const popoverLed = document.getElementById('popoverLed');
@@ -57,6 +70,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initEventListeners();
   fetchNetworkInfo();
   loadTopologyData();
+  startLivePolling();
   window.addEventListener('resize', () => renderTopology());
 });
 
@@ -133,37 +147,82 @@ function initEventListeners() {
     }
   });
 
-  // Popover: Editar
+  // Popover: Editar con validación obligatoria de contraseña
   btnPopoverEdit.addEventListener('click', () => {
     const dev = getSelectedDevice();
-    if (dev) {
+    if (!dev) return;
+
+    if (dev.id === 'internet') {
       openEditModal(dev);
+      return;
+    }
+
+    // Verificar si ya fue desbloqueada en esta sesión o en llavero
+    const rememberedPass = localStorage.getItem('airport_keychain_' + dev.id);
+    if (rememberedPass) {
+      sessionUnlockedPasswords[dev.id] = rememberedPass;
+    }
+
+    if (sessionUnlockedPasswords[dev.id]) {
+      openEditModal(dev);
+    } else {
+      promptDevicePassword(dev, () => openEditModal(dev));
     }
   });
 
-  // Popover: Reiniciar
+  // Popover: Reiniciar hardware
   btnPopoverRestart.addEventListener('click', async () => {
     const dev = getSelectedDevice();
     if (!dev || dev.id === 'internet') return;
 
     btnPopoverRestart.disabled = true;
-    btnPopoverRestart.textContent = 'Reiniciando...';
-    showToast(`Reiniciando "${dev.name}"...`);
+    btnPopoverRestart.textContent = 'Enviando...';
+    showToast(`Conectando con "${dev.name}" (puerto 5009)...`);
+
+    async function sendRestart(password = '') {
+      const res = await fetch(`/api/devices/${dev.id}/restart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await res.json();
+      return { status: res.status, data };
+    }
 
     try {
-      await fetch(`/api/devices/${dev.id}/restart`, { method: 'POST' });
-      await loadTopologyData();
-      setTimeout(async () => {
-        await loadTopologyData();
-        if (state.selectedDeviceId === dev.id) {
-          openDevicePopover(getSelectedDevice());
+      let result = await sendRestart();
+
+      // Si requiere contraseña de administración
+      if (result.status === 401 && result.data.requiresPassword) {
+        const pass = prompt(`Ingrese la contraseña de administración de "${dev.name}" para autorizar el reinicio del hardware físico:`);
+        if (pass !== null) {
+          result = await sendRestart(pass);
+        } else {
+          btnPopoverRestart.disabled = false;
+          btnPopoverRestart.textContent = 'Reiniciar';
+          return;
         }
+      }
+
+      if (result.status === 200 && result.data.success) {
+        showToast(`⚡ ${result.data.message}`);
+        await loadTopologyData();
+        setTimeout(async () => {
+          await loadTopologyData();
+          if (state.selectedDeviceId === dev.id) {
+            openDevicePopover(getSelectedDevice());
+          }
+          btnPopoverRestart.disabled = false;
+          btnPopoverRestart.textContent = 'Reiniciar';
+        }, 10000);
+      } else {
+        showToast(`⚠️ ${result.data.error || 'No se pudo reiniciar la estación base'}`);
         btnPopoverRestart.disabled = false;
         btnPopoverRestart.textContent = 'Reiniciar';
-        showToast(`"${dev.name}" se reinició correctamente`);
-      }, 4200);
+      }
     } catch (err) {
       console.error(err);
+      showToast('⚠️ Error al comunicarse con el servidor de reinicio');
       btnPopoverRestart.disabled = false;
       btnPopoverRestart.textContent = 'Reiniciar';
     }
@@ -199,11 +258,247 @@ function initEventListeners() {
   });
   document.getElementById('btnAddConfirm').addEventListener('click', submitAddDevice);
 
+  // Eventos de la pestaña Inalámbrica
+  const selectWirelessMode = document.getElementById('selectWirelessMode');
+  selectWirelessMode.addEventListener('change', () => {
+    updateWirelessModeUI();
+  });
+
+  const selectDiscoveredSsids = document.getElementById('selectDiscoveredSsids');
+  selectDiscoveredSsids.addEventListener('change', () => {
+    const boxOtherSsid = document.getElementById('boxOtherSsid');
+    const inputOtherSsid = document.getElementById('inputOtherSsid');
+    if (selectDiscoveredSsids.value === '__other__') {
+      boxOtherSsid.style.display = 'block';
+      inputOtherSsid.focus();
+    } else {
+      boxOtherSsid.style.display = 'none';
+      if (selectDiscoveredSsids.value) {
+        const selectedOpt = selectDiscoveredSsids.selectedOptions[0];
+        if (selectedOpt && selectedOpt.dataset.security) {
+          const sec = selectedOpt.dataset.security;
+          const selectSecurity = document.getElementById('selectSecurity');
+          if (sec.includes('WPA2') || sec.includes('WPA3')) {
+            selectSecurity.value = 'WPA2 Personal';
+          } else if (sec.includes('WEP')) {
+            selectSecurity.value = 'WEP';
+          } else if (sec.includes('Abierta') || sec === '--') {
+            selectSecurity.value = 'Ninguna';
+          }
+          selectSecurity.dispatchEvent(new Event('change'));
+        }
+      }
+    }
+  });
+
+  // Red de 5 GHz toggle
+  const check5GHz = document.getElementById('check5GHz');
+  const box5GHzSsid = document.getElementById('box5GHzSsid');
+  check5GHz.addEventListener('change', () => {
+    box5GHzSsid.style.display = check5GHz.checked ? 'block' : 'none';
+  });
+
+  // Seguridad Wi-Fi toggle
+  const selectSecurity = document.getElementById('selectSecurity');
+  const groupWifiPassword = document.getElementById('groupWifiPassword');
+  const groupWifiPasswordConfirm = document.getElementById('groupWifiPasswordConfirm');
+  selectSecurity.addEventListener('change', () => {
+    const isNone = selectSecurity.value === 'Ninguna';
+    groupWifiPassword.style.display = isNone ? 'none' : 'block';
+    groupWifiPasswordConfirm.style.display = isNone ? 'none' : 'block';
+  });
+
   // Red de invitados toggle
   const checkGuest = document.getElementById('checkGuestNetwork');
   checkGuest.addEventListener('change', () => {
     document.getElementById('guestSettingsBox').style.display = checkGuest.checked ? 'block' : 'none';
   });
+}
+
+// Cargar redes inalámbricas descubiertas para los modos Ampliar y Conectarse
+async function populateDiscoveredSsids(currentSsid = '') {
+  const select = document.getElementById('selectDiscoveredSsids');
+  const boxOther = document.getElementById('boxOtherSsid');
+  const inputOther = document.getElementById('inputOtherSsid');
+  if (!select) return;
+
+  try {
+    const res = await fetch('/api/scan-wifi');
+    if (res.ok) {
+      const data = await res.json();
+      const networks = data.networks || [];
+
+      select.innerHTML = '<option value="">-- Seleccionar red inalámbrica al alcance --</option>';
+
+      let found = false;
+      networks.forEach(net => {
+        const opt = document.createElement('option');
+        opt.value = net.ssid;
+        opt.dataset.security = net.security;
+        opt.textContent = `${net.ssid} (${net.signal}% • ${net.security})`;
+        if (currentSsid && net.ssid === currentSsid) {
+          opt.selected = true;
+          found = true;
+        }
+        select.appendChild(opt);
+      });
+
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '──────────────────────────';
+      select.appendChild(sep);
+
+      const otherOpt = document.createElement('option');
+      otherOpt.value = '__other__';
+      otherOpt.textContent = 'Otra red...';
+      select.appendChild(otherOpt);
+
+      if (currentSsid && !found) {
+        otherOpt.selected = true;
+        if (boxOther) boxOther.style.display = 'block';
+        if (inputOther) inputOther.value = currentSsid;
+      } else {
+        if (boxOther) boxOther.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Error al escanear redes Wi-Fi:', err);
+  }
+}
+
+// Actualizar la interfaz de la pestaña Inalámbrica según el modo seleccionado
+function updateWirelessModeUI(currentSsid = null) {
+  const selectMode = document.getElementById('selectWirelessMode');
+  const mode = selectMode ? selectMode.value : 'create';
+
+  const wirelessDisabledNotice = document.getElementById('wirelessDisabledNotice');
+  const wirelessExtendNotice = document.getElementById('wirelessExtendNotice');
+  const wirelessJoinNotice = document.getElementById('wirelessJoinNotice');
+  const wirelessActiveSettings = document.getElementById('wirelessActiveSettings');
+
+  const groupSsidInput = document.getElementById('groupSsidInput');
+  const groupDiscoveredSsids = document.getElementById('groupDiscoveredSsids');
+  const labelSsid = document.getElementById('labelSsid');
+  const labelDiscoveredSsids = document.getElementById('labelDiscoveredSsids');
+  const labelWifiPassword = document.getElementById('labelWifiPassword');
+
+  const boxAllowEthernetClients = document.getElementById('boxAllowEthernetClients');
+  const wirelessOptionsDetails = document.getElementById('wirelessOptionsDetails');
+  const guestNetworkOuterBox = document.getElementById('guestNetworkOuterBox');
+
+  // Reset avisos
+  if (wirelessDisabledNotice) wirelessDisabledNotice.style.display = 'none';
+  if (wirelessExtendNotice) wirelessExtendNotice.style.display = 'none';
+  if (wirelessJoinNotice) wirelessJoinNotice.style.display = 'none';
+
+  if (mode === 'off') {
+    if (wirelessDisabledNotice) wirelessDisabledNotice.style.display = 'flex';
+    if (wirelessActiveSettings) wirelessActiveSettings.style.display = 'none';
+    return;
+  }
+
+  if (wirelessActiveSettings) wirelessActiveSettings.style.display = 'block';
+
+  if (mode === 'extend') {
+    // Modo: Ampliar una red inalámbrica (repetidor WDS/roaming de estación principal)
+    if (wirelessExtendNotice) wirelessExtendNotice.style.display = 'flex';
+    if (groupSsidInput) groupSsidInput.style.display = 'none';
+    if (groupDiscoveredSsids) groupDiscoveredSsids.style.display = 'block';
+    if (labelDiscoveredSsids) labelDiscoveredSsids.textContent = 'Nombre de la red que se va a ampliar:';
+    if (labelWifiPassword) labelWifiPassword.textContent = 'Contraseña de la red que se va a ampliar:';
+
+    // Opciones no aplicables al extender (heredadas de la base principal)
+    if (boxAllowEthernetClients) boxAllowEthernetClients.style.display = 'none';
+    if (wirelessOptionsDetails) wirelessOptionsDetails.style.display = 'none';
+    if (guestNetworkOuterBox) guestNetworkOuterBox.style.display = 'none';
+
+    populateDiscoveredSsids(currentSsid);
+  } else if (mode === 'join') {
+    // Modo: Conectarse a una red inalámbrica (cliente Wi-Fi para AirPlay / discos / impresoras)
+    if (wirelessJoinNotice) wirelessJoinNotice.style.display = 'flex';
+    if (groupSsidInput) groupSsidInput.style.display = 'none';
+    if (groupDiscoveredSsids) groupDiscoveredSsids.style.display = 'block';
+    if (labelDiscoveredSsids) labelDiscoveredSsids.textContent = 'Nombre de la red a la que conectarse:';
+    if (labelWifiPassword) labelWifiPassword.textContent = 'Contraseña de la red Wi-Fi:';
+
+    // Opción exclusiva: Permitir clientes Ethernet
+    if (boxAllowEthernetClients) boxAllowEthernetClients.style.display = 'block';
+
+    // Opciones no aplicables (la estación no emite radio Wi-Fi propia)
+    if (wirelessOptionsDetails) wirelessOptionsDetails.style.display = 'none';
+    if (guestNetworkOuterBox) guestNetworkOuterBox.style.display = 'none';
+
+    populateDiscoveredSsids(currentSsid);
+  } else {
+    // Modo: Crear una red inalámbrica (estación base autónoma)
+    if (groupSsidInput) groupSsidInput.style.display = 'block';
+    if (groupDiscoveredSsids) groupDiscoveredSsids.style.display = 'none';
+    if (labelSsid) labelSsid.textContent = 'Nombre de la red inalámbrica:';
+    if (labelWifiPassword) labelWifiPassword.textContent = 'Contraseña de la red inalámbrica:';
+
+    if (boxAllowEthernetClients) boxAllowEthernetClients.style.display = 'none';
+    if (wirelessOptionsDetails) wirelessOptionsDetails.style.display = 'block';
+    if (guestNetworkOuterBox) guestNetworkOuterBox.style.display = 'block';
+  }
+}
+
+// Renderizar clientes inalámbricos sin parpadeos
+function renderClientsList(clients = []) {
+  if (!popoverClientsBadge || !popoverClientsList) return;
+  popoverClientsBadge.textContent = clients.length;
+
+  const currentKey = clients.map(c => `${c.ip}-${c.mac}`).join('|');
+  if (popoverClientsList.dataset.lastKey === currentKey) {
+    return;
+  }
+  popoverClientsList.dataset.lastKey = currentKey;
+  popoverClientsList.innerHTML = '';
+
+  if (clients.length === 0) {
+    popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #888;">Sin clientes conectados</li>`;
+  } else {
+    clients.forEach(c => {
+      const li = document.createElement('li');
+      li.className = 'client-item';
+      li.innerHTML = `
+        <span class="client-name">${escapeHtml(c.name)}</span>
+        <span class="client-stats">${escapeHtml(c.ip)} • ${escapeHtml(c.signal)}</span>
+      `;
+      popoverClientsList.appendChild(li);
+    });
+  }
+}
+
+// Sondeo continuo en vivo cada 2.5 segundos
+function startLivePolling() {
+  setInterval(async () => {
+    // Si hay un modal de edición abierto, pausar para no pisar campos de texto
+    if (editModalBackdrop.style.display === 'flex' || addDeviceModalBackdrop.style.display === 'flex') {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/devices');
+      if (res.ok) {
+        const data = await res.json();
+        state.internet = data.internet;
+        state.devices = data.devices;
+
+        if (devicesCountBadge) devicesCountBadge.textContent = state.devices.length;
+        if (topologyCount) {
+          topologyCount.textContent = `${state.devices.length} dispositivo${state.devices.length === 1 ? '' : 's'} AirPort`;
+        }
+
+        // Si el popover de la estación base está abierto, actualizar clientes en tiempo real
+        if (state.selectedDeviceId && devicePopover.style.display === 'block') {
+          const currentDev = getSelectedDevice();
+          if (currentDev && currentDev.clients) {
+            renderClientsList(currentDev.clients);
+          }
+        }
+      }
+    } catch (_) {}
+  }, 2500);
 }
 
 // Cargar información del sistema host
@@ -418,7 +713,7 @@ function createNodeElement(item) {
     </div>
     <div class="node-label-box">
       <div class="node-title">${escapeHtml(item.name)}</div>
-      <div class="node-subtitle">${escapeHtml(item.isInternet ? 'Conexión a Internet' : (isOffline ? 'No disponible' : item.modelName))}</div>
+      <div class="node-subtitle">${escapeHtml(item.isInternet ? 'Conexión a Internet' : (isOffline ? 'No disponible' : (item.wirelessMode === 'off' ? `${item.modelName} (Wi-Fi off)` : item.modelName)))}</div>
     </div>
   `;
 
@@ -482,36 +777,52 @@ function openDevicePopover(item) {
     popoverFirmware.textContent = item.firmwareVersion || '7.9.1';
     popoverMac.textContent = item.macAddress || '00:00:00:00:00:00';
 
+    // Mostrar estado de red Wi-Fi
+    const rowWifi = document.getElementById('rowWifiStatus');
+    const popoverWifiStatus = document.getElementById('popoverWifiStatus');
+    const isWirelessOff = item.wirelessMode === 'off';
+    const isOffline = item.status === 'offline';
+
+    if (rowWifi && popoverWifiStatus) {
+      rowWifi.style.display = 'flex';
+      if (isOffline) {
+        popoverWifiStatus.innerHTML = '<span style="color: #888;">No disponible (estación apagada)</span>';
+      } else if (isWirelessOff && item.physicalRadioActive) {
+        popoverWifiStatus.innerHTML = '<span style="color: #d70015; font-weight: 600;">🚫 Desactivada en software</span><br><small style="color: #c97000; font-size: 15px;">⚠️ Radio física activa en el aire (' + (item.physicalBssid || '00:1C:B3:AE:3A:4E') + ')</small>';
+      } else if (isWirelessOff) {
+        popoverWifiStatus.innerHTML = '<span style="color: #d70015; font-weight: 600;">🚫 Desactivada</span>';
+      } else {
+        popoverWifiStatus.textContent = `${item.ssid || 'Wi-Fi'} (${item.security || 'WPA2'})`;
+      }
+    }
+
     // Mostrar discos USB conectados
     const rowDisks = document.getElementById('rowDisks');
-    if (item.disks && item.disks.length > 0) {
+    if (!isOffline && item.disks && item.disks.length > 0) {
       rowDisks.style.display = 'flex';
-      document.getElementById('popoverDiskName').textContent = item.disks.map(d => d.name).join(', ');
+      document.getElementById('popoverDiskName').textContent = item.disks.map(d => {
+        const pct = typeof d.percent === 'number' ? `${String(d.percent).replace('.', ',')}% ocupado` : '';
+        const usedTotal = (d.sizeUsed && d.sizeTotal && d.sizeTotal !== 'Almacenamiento USB') ? ` (${d.sizeUsed} / ${d.sizeTotal})` : '';
+        return `${d.name}${pct ? ' • ' + pct : ''}${usedTotal}`;
+      }).join(', ');
     } else {
       rowDisks.style.display = 'none';
     }
 
     btnPopoverRestart.style.display = 'inline-flex';
-    btnPopoverRestart.disabled = item.status === 'restarting';
+    btnPopoverRestart.disabled = isOffline || item.status === 'restarting';
     btnPopoverRestart.textContent = item.status === 'restarting' ? 'Reiniciando...' : 'Reiniciar';
     btnPopoverEdit.textContent = 'Editar';
 
-    // Renderizar clientes inalámbricos
-    const clients = item.clients || [];
-    popoverClientsBadge.textContent = clients.length;
-    popoverClientsList.innerHTML = '';
-    if (clients.length === 0) {
-      popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #888;">Sin clientes inalámbricos</li>`;
+    // Renderizar clientes inalámbricos con diffing para evitar parpadeos
+    if (isOffline) {
+      renderClientsList([]);
+      popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #d70015; font-weight: 500;">Dispositivo apagado o fuera de línea</li>`;
+    } else if (isWirelessOff) {
+      renderClientsList([]);
+      popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #888;">Radio inalámbrica desactivada</li>`;
     } else {
-      clients.forEach(c => {
-        const li = document.createElement('li');
-        li.className = 'client-item';
-        li.innerHTML = `
-          <span class="client-name">${escapeHtml(c.name)}</span>
-          <span class="client-stats">${escapeHtml(c.ip)} • ${escapeHtml(c.signal)}</span>
-        `;
-        popoverClientsList.appendChild(li);
-      });
+      renderClientsList(item.clients || []);
     }
   }
 
@@ -551,6 +862,73 @@ function getSelectedDevice() {
   return state.devices.find(d => d.id === state.selectedDeviceId);
 }
 
+// Diálogo modal de solicitud de contraseña de administración
+function promptDevicePassword(dev, onSuccess) {
+  authTitle.textContent = `Introduzca la contraseña para «${dev.name}»`;
+  authPromptText.textContent = `Se requiere la contraseña de administración para acceder a la configuración de «${dev.name}».`;
+  inputAuthPassword.value = '';
+  authErrorMessage.style.display = 'none';
+  authModalBackdrop.style.display = 'flex';
+
+  setTimeout(() => inputAuthPassword.focus(), 150);
+
+  const cleanup = () => {
+    btnAuthCancel.removeEventListener('click', onCancel);
+    btnAuthSubmit.removeEventListener('click', onSubmit);
+    inputAuthPassword.removeEventListener('keydown', onKey);
+  };
+
+  const onCancel = () => {
+    cleanup();
+    authModalBackdrop.style.display = 'none';
+  };
+
+  const onSubmit = async () => {
+    const entered = inputAuthPassword.value;
+    try {
+      const res = await fetch(`/api/devices/${dev.id}/verify-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: entered })
+      });
+
+      if (res.ok) {
+        cleanup();
+        sessionUnlockedPasswords[dev.id] = entered;
+        if (checkAuthRemember.checked) {
+          localStorage.setItem('airport_keychain_' + dev.id, entered);
+        }
+        authModalBackdrop.style.display = 'none';
+        onSuccess();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        authErrorMessage.textContent = `⚠️ ${errData.error || 'La contraseña de administración ingresada es incorrecta.'}`;
+        authErrorMessage.style.display = 'block';
+        inputAuthPassword.select();
+        inputAuthPassword.focus();
+      }
+    } catch (e) {
+      console.error(e);
+      authErrorMessage.textContent = '⚠️ Error al verificar la contraseña.';
+      authErrorMessage.style.display = 'block';
+    }
+  };
+
+  const onKey = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
+  btnAuthCancel.addEventListener('click', onCancel);
+  btnAuthSubmit.addEventListener('click', onSubmit);
+  inputAuthPassword.addEventListener('keydown', onKey);
+}
+
 // Abrir modal de edición Sheet
 function openEditModal(dev) {
   state.activeEditingDevice = dev;
@@ -576,16 +954,39 @@ function openEditModal(dev) {
   document.getElementById('selectConnectVia').value = dev.connectionType || 'DHCP';
   document.getElementById('inputWanIp').value = dev.wanIp || dev.ipAddress || '172.21.5.133';
 
-  document.getElementById('selectWirelessMode').value = dev.wirelessMode || 'create';
+  // Configuración inalámbrica
+  const selectMode = document.getElementById('selectWirelessMode');
+  selectMode.value = dev.wirelessMode || 'create';
   document.getElementById('inputSsid').value = dev.ssid || '';
   document.getElementById('selectSecurity').value = dev.security || 'WPA2 Personal';
   document.getElementById('inputWifiPassword').value = dev.wirelessPassword || '';
+  document.getElementById('inputWifiPasswordConfirm').value = dev.wirelessPassword || '';
 
+  // Canales y 5GHz
+  const check5G = document.getElementById('check5GHz');
+  const box5G = document.getElementById('box5GHzSsid');
+  check5G.checked = !!dev.enable5GHz;
+  box5G.style.display = dev.enable5GHz ? 'block' : 'none';
+  document.getElementById('input5GHzSsid').value = dev.ssid5GHz || (dev.ssid ? `${dev.ssid} 5GHz` : '');
+  document.getElementById('selectChannel24').value = dev.channel24 || dev.channel || 'auto';
+  document.getElementById('selectChannel5').value = dev.channel5 || 'auto';
+  document.getElementById('checkHiddenNetwork').checked = !!dev.hiddenNetwork;
+
+  // Red de invitados
   const checkGuest = document.getElementById('checkGuestNetwork');
   checkGuest.checked = !!dev.guestNetwork;
   document.getElementById('guestSettingsBox').style.display = dev.guestNetwork ? 'block' : 'none';
   document.getElementById('inputGuestSsid').value = dev.guestSsid || `${dev.ssid || 'Red'} Invitados`;
   document.getElementById('inputGuestPassword').value = dev.guestPassword || '';
+
+  // Configuración de clientes Ethernet (modo Conectarse)
+  const checkAllowEthernet = document.getElementById('checkAllowEthernetClients');
+  if (checkAllowEthernet) {
+    checkAllowEthernet.checked = dev.allowEthernetClients !== false;
+  }
+
+  // Actualizar visibilidad y campos según el modo inalámbrico (off / create / extend / join)
+  updateWirelessModeUI(dev.ssid);
 
   document.getElementById('selectRouterMode').value = dev.routerMode || 'nat_dhcp';
   document.getElementById('inputDhcpRange').value = dev.dhcpRange || '10.0.1.2 a 10.0.1.200';
@@ -609,18 +1010,21 @@ function openEditModal(dev) {
     `;
   } else {
     disks.forEach(d => {
+      const pctNum = typeof d.percent === 'number' ? Math.max(0, Math.min(100, d.percent)) : 0;
+      const pctLabel = `${String(pctNum).replace('.', ',')}% ocupado`;
+      const fillColor = pctNum > 90 ? '#d70015' : (pctNum > 75 ? '#f5a623' : '#007aff');
       const card = document.createElement('div');
       card.className = 'disk-card';
       card.innerHTML = `
         <img src="/images/airdisk.png" alt="AirDisk">
         <div class="disk-info">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="disk-name">${escapeHtml(d.name)}</div>
+            <div class="disk-name">${escapeHtml(d.name)} <span style="font-weight: 700; color: #005bb5; margin-left: 6px;">(${pctLabel})</span></div>
             <button class="btn-eject-disk" data-disk="${escapeHtml(d.name)}" title="Expulsar unidad de forma segura">⏏ Expulsar</button>
           </div>
           <div class="disk-capacity">${escapeHtml(d.type || 'Unidad USB')} • ${escapeHtml(d.status || 'Compartido')}</div>
-          <div class="disk-progress-bar">
-            <div class="disk-progress-fill" style="width: ${d.percent || 30}%"></div>
+          <div class="disk-progress-bar" title="${pctLabel}">
+            <div class="disk-progress-fill" style="width: ${pctNum}%; background: ${fillColor}; ${pctNum > 0 ? 'min-width: 6px;' : ''}"></div>
           </div>
         </div>
       `;
@@ -665,16 +1069,44 @@ async function saveDeviceEdit() {
   if (!state.activeEditingDevice) return;
   const dev = state.activeEditingDevice;
 
+  const wirelessModeVal = document.getElementById('selectWirelessMode').value;
+  const isWirelessOff = wirelessModeVal === 'off';
+
+  let selectedSsid = '';
+  if (isWirelessOff) {
+    selectedSsid = '';
+  } else if (wirelessModeVal === 'create') {
+    selectedSsid = document.getElementById('inputSsid').value.trim() || dev.ssid;
+  } else {
+    // Modo extend o join
+    const selDiscovered = document.getElementById('selectDiscoveredSsids');
+    if (selDiscovered && selDiscovered.value === '__other__') {
+      selectedSsid = document.getElementById('inputOtherSsid').value.trim() || dev.ssid;
+    } else if (selDiscovered && selDiscovered.value) {
+      selectedSsid = selDiscovered.value;
+    } else {
+      selectedSsid = dev.ssid || '';
+    }
+  }
+
+  const checkAllowEthernet = document.getElementById('checkAllowEthernetClients');
+
   const updated = {
     name: document.getElementById('inputBaseName').value.trim() || dev.name,
     wirelessPassword: document.getElementById('inputBasePassword').value,
     backToMyMac: document.getElementById('inputBackToMyMac').value.trim(),
     connectionType: document.getElementById('selectConnectVia').value,
     wanIp: document.getElementById('inputWanIp').value.trim(),
-    wirelessMode: document.getElementById('selectWirelessMode').value,
-    ssid: document.getElementById('inputSsid').value.trim() || dev.ssid,
+    wirelessMode: wirelessModeVal,
+    ssid: selectedSsid,
     security: document.getElementById('selectSecurity').value,
-    guestNetwork: document.getElementById('checkGuestNetwork').checked,
+    allowEthernetClients: checkAllowEthernet ? checkAllowEthernet.checked : true,
+    enable5GHz: document.getElementById('check5GHz').checked,
+    ssid5GHz: document.getElementById('input5GHzSsid').value.trim(),
+    channel24: document.getElementById('selectChannel24').value,
+    channel5: document.getElementById('selectChannel5').value,
+    hiddenNetwork: document.getElementById('checkHiddenNetwork').checked,
+    guestNetwork: (isWirelessOff || wirelessModeVal === 'extend' || wirelessModeVal === 'join') ? false : document.getElementById('checkGuestNetwork').checked,
     guestSsid: document.getElementById('inputGuestSsid').value.trim(),
     guestPassword: document.getElementById('inputGuestPassword').value,
     routerMode: document.getElementById('selectRouterMode').value,
@@ -685,27 +1117,40 @@ async function saveDeviceEdit() {
   };
 
   try {
+    const adminPass = sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || '';
     const res = await fetch(`/api/devices/${dev.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-password': adminPass
+      },
       body: JSON.stringify(updated)
     });
 
-    if (res.ok) {
-      editModalBackdrop.style.display = 'none';
-      showToast('Ajustes guardados. Actualizando estación base...');
+    if (res.status === 401 || res.status === 403) {
+      delete sessionUnlockedPasswords[dev.id];
+      showToast('⚠️ Acceso denegado: Se requiere la contraseña de administración correcta');
+      promptDevicePassword(dev, () => saveDeviceEdit());
+      return;
+    }
 
-      // Disparar reinicio visual suave
-      if (dev.id !== 'internet') {
-        fetch(`/api/devices/${dev.id}/restart`, { method: 'POST' });
+    if (res.ok) {
+      const basePass = document.getElementById('inputBasePassword').value;
+      if (basePass) {
+        sessionUnlockedPasswords[dev.id] = basePass;
       }
+      editModalBackdrop.style.display = 'none';
+      showToast('Ajustes enviados al hardware. Reiniciando servicios del AirPort...');
 
       await loadTopologyData();
 
       setTimeout(async () => {
         await loadTopologyData();
         showToast('Estación base actualizada y en línea');
-      }, 4200);
+      }, 8500);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      showToast(`⚠️ ${errData.error || 'Error al aplicar los ajustes en el hardware'}`);
     }
   } catch (err) {
     console.error('Error al guardar ajustes:', err);
@@ -758,14 +1203,32 @@ async function submitAddDevice() {
   }
 }
 
-// Mostrar Toast
-function showToast(msg) {
+// Mostrar Toast (30 segundos si es error, o duración personalizada)
+function showToast(msg, durationMs) {
+  const isError = /error|⚠️|❌|denegado|bloqueado|rechazó|no se pudo/i.test(msg);
+  const timeout = durationMs || (isError ? 30000 : 4500);
+
   toastMessage.textContent = msg;
+  if (isError) {
+    macToast.classList.add('toast-error');
+  } else {
+    macToast.classList.remove('toast-error');
+  }
   macToast.style.display = 'flex';
+
+  const closeBtn = document.getElementById('toastCloseBtn');
+  if (closeBtn && !closeBtn.dataset.bound) {
+    closeBtn.dataset.bound = '1';
+    closeBtn.addEventListener('click', () => {
+      clearTimeout(showToast.timer);
+      macToast.style.display = 'none';
+    });
+  }
+
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => {
     macToast.style.display = 'none';
-  }, 3200);
+  }, timeout);
 }
 
 // Utilidad para escapar texto HTML

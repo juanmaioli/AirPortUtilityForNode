@@ -2,7 +2,7 @@
 
 [Documentación oficial de Apple AirPort](https://support.apple.com/es-es/HT208084)
 
-Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility 6.3 de Apple OS X) desarrollada en **Node.js** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, lectura de unidades USB compartidas (AirDisk) y pantalla de diagnóstico oficial para dispositivos no detectados.
+Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility de Apple OS X) desarrollada en **Node.js** y **Python** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, control y gestión de hardware real mediante el protocolo nativo **ACP** (puerto `5009`), telemetría exacta de almacenamiento USB (**AirDisk**), apagado físico de radio Wi-Fi y visualización diagnóstica oficial de Apple.
 
 ---
 
@@ -26,14 +26,14 @@ http://localhost:3000
 
 | Módulo | Descripción |
 | :--- | :--- |
-| **Topología interactiva** | Visualización en árbol (Internet 🌐, AirPort Extreme y clientes) con líneas SVG sutiles por debajo del texto. |
-| **Escaneo en vivo (mDNS)** | Descubrimiento real mediante Bonjour (`224.0.0.251:5353`) de estaciones Apple en la red física. |
-| **Soporte AirDisk USB** | Lectura automática de discos y pendrives compartidos por USB (`_adisk._tcp.local`). |
-| **Estado "Router no detectado"** | Pantalla de advertencia oficial de Apple con icono de alerta ⚠️ y botón *"Volver a explorar"* cuando el router está apagado o fuera de alcance. |
-| **Gráficos originales de Apple** | Recursos visuales extraídos del archivo DMG oficial (modelos 3D y LEDs de estado). |
-| **Popover contextual nativo** | Detalle en tiempo real de dirección IP, MAC, versión de firmware, canales y clientes. |
-| **Panel de configuración (Sheet)** | Pestañas de Estación Base, Internet, Inalámbrica (Wi-Fi), Red, Discos y AirPlay. |
-| **Accesibilidad visual** | Tipografía adaptada con un tamaño mínimo base de **15px** para facilitar la lectura. |
+| **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort. |
+| **Apagado real de radio Wi-Fi** | Desactivación física de la emisión de radio modificando el diccionario binario `WiFi.radios[0]` (`raWM = 0`) y recarga inmediata con `acRI`. |
+| **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
+| **Topología interactiva** | Visualización en árbol (Internet 🌐, estaciones AirPort y clientes) con líneas SVG dinámicas. |
+| **Escaneo en vivo (mDNS/Bonjour)** | Descubrimiento multicast en tiempo real (`224.0.0.251:5353`) de estaciones Apple y servicios AirDisk. |
+| **Seguridad y autenticación** | Validación de clave de administración con soporte para autenticación Legacy y SRP. |
+| **Avisos y accesibilidad (30s)** | Notificaciones de error de alto contraste visibles durante 30 segundos con botón de cierre manual y tipografía optimizada (≥15px). |
+| **Gráficos originales de Apple** | Iconos y modelos 3D auténticos de estaciones AirPort Extreme, Time Capsule y Express extraídos de las imágenes oficiales. |
 
 ---
 
@@ -41,17 +41,20 @@ http://localhost:3000
 
 ```text
 AirPortUtility/
+├── acp/                      # Biblioteca del protocolo de control ACP de Apple
+├── acp_control.py            # Controlador CLI para verificar, aplicar cambios y leer discos
 ├── data/
-│   └── devices.json          # Almacén de configuración persistente
+│   └── devices.json          # Almacén de configuración y estado persistente
 ├── public/
 │   ├── css/
 │   │   └── style.css         # Estilos visuales exactos estilo OS X Aqua/Dark (≥15px)
 │   ├── images/               # Assets extraídos y convertidos del .dmg oficial
 │   ├── js/
-│   │   └── app.js            # Lógica reactiva de topología, popovers y estado vacío
-│   └── index.html            # Interfaz principal
-├── package.json              # Configuración y dependencias (v1.2.0)
-├── server.js                 # Servidor HTTP Express y escáner mDNS/Bonjour
+│   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
+│   └── index.html            # Interfaz gráfica principal
+├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
+├── package.json              # Configuración y dependencias (v1.3.0)
+├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```
 
@@ -60,9 +63,15 @@ AirPortUtility/
 ## 4. ⚙️ Comandos disponibles
 
 ```bash
-# Iniciar el servidor
+# Iniciar el servidor web
 npm start
 
-# Iniciar directamente con Node
+# Iniciar directamente con Node.js
 node server.js
+
+# Consultar telemetría de disco USB físico vía ACP
+python3 acp_control.py -a disks -t 172.21.5.133 -p juanmaioli506
+
+# Reiniciar la estación base físicamente
+python3 reboot.py -t 172.21.5.133 -p juanmaioli506
 ```

@@ -139,6 +139,11 @@
             <span class="info-val monospace" id="popoverMac">68:a8:6d:4f:21:88</span>
           </div>
 
+          <div class="info-row" id="rowWifiStatus">
+            <span class="info-label">Red Wi-Fi:</span>
+            <span class="info-val" id="popoverWifiStatus">AramisAirportWiFi</span>
+          </div>
+
           <div class="info-row" id="rowDisks" style="display: none;">
             <span class="info-label">Unidad USB:</span>
             <span class="info-val" id="popoverDisks">
@@ -149,8 +154,11 @@
           <!-- Clientes conectados -->
           <div class="popover-clients-section" id="popoverClientsSection">
             <div class="clients-header">
-              <span class="clients-title">Clientes inalámbricos:</span>
-              <span class="badge" id="popoverClientsBadge">3</span>
+              <span class="clients-title">
+                Clientes conectados:
+                <span class="live-pulse-badge" title="Actualización continua en vivo"><span class="live-dot"></span> En vivo</span>
+              </span>
+              <span class="badge" id="popoverClientsBadge">0</span>
             </div>
             <ul class="clients-list" id="popoverClientsList">
               <!-- Cargado dinámicamente -->
@@ -176,6 +184,38 @@
         <span id="topologyCount">2 dispositivos AirPort</span>
       </div>
     </footer>
+  </div>
+
+  <!-- Modal de Solicitud de Contraseña estilo Apple OS X -->
+  <div class="modal-backdrop" id="authModalBackdrop" style="display: none; z-index: 2500;">
+    <div class="mac-sheet modal-sm" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="sheet-header" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <span class="auth-lock-icon">🔒</span>
+        <h2 id="authTitle" style="font-size: 16px;">Introduzca la contraseña</h2>
+        <p style="font-size: 15px; color: #555;" id="authPromptText">
+          Introduzca la contraseña para acceder y configurar «AramisAirPort».
+        </p>
+      </div>
+      <div class="sheet-content">
+        <div class="form-group">
+          <label for="inputAuthPassword">Contraseña de la estación base:</label>
+          <input type="password" id="inputAuthPassword" class="mac-input" placeholder="Contraseña de administración">
+        </div>
+        <div class="form-group checkbox-group">
+          <label class="mac-checkbox-label">
+            <input type="checkbox" id="checkAuthRemember" checked>
+            <span>Recordar esta contraseña en mi llavero</span>
+          </label>
+        </div>
+        <div id="authErrorMessage" style="display: none; color: #d70015; font-size: 15px; margin-top: 8px;">
+          ⚠️ Contraseña incorrecta. Inténtelo de nuevo.
+        </div>
+      </div>
+      <div class="sheet-footer">
+        <button class="mac-btn secondary" id="btnAuthCancel">Cancelar</button>
+        <button class="mac-btn primary" id="btnAuthSubmit">Aceptar</button>
+      </div>
+    </div>
   </div>
 
   <!-- Modal de configuración estilo Hoja / Sheet de OS X -->
@@ -289,43 +329,156 @@
             <select id="selectWirelessMode" class="mac-select">
               <option value="create">Crear una red inalámbrica</option>
               <option value="extend">Ampliar una red inalámbrica</option>
+              <option value="join">Conectarse a una red inalámbrica</option>
               <option value="off">Desactivada</option>
             </select>
           </div>
-          <div class="form-group">
-            <label for="inputSsid">Nombre de la red inalámbrica (SSID):</label>
-            <input type="text" id="inputSsid" class="mac-input" placeholder="Nombre de tu red Wi-Fi">
-          </div>
-          <div class="form-group">
-            <label for="selectSecurity">Seguridad inalámbrica:</label>
-            <select id="selectSecurity" class="mac-select">
-              <option value="WPA2 Personal">WPA2 Personal (Recomendado)</option>
-              <option value="WPA/WPA2 Personal">WPA/WPA2 Personal</option>
-              <option value="WPA2 Enterprise">WPA2 Enterprise</option>
-              <option value="Ninguna">Ninguna (Insegura)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="inputWifiPassword">Contraseña de la red inalámbrica:</label>
-            <input type="password" id="inputWifiPassword" class="mac-input" placeholder="Contraseña de Wi-Fi">
-          </div>
 
-          <hr class="form-divider">
-
-          <div class="form-group checkbox-group">
-            <label class="mac-checkbox-label">
-              <input type="checkbox" id="checkGuestNetwork">
-              <span><strong>Activar red para invitados</strong></span>
-            </label>
-          </div>
-          <div class="guest-settings" id="guestSettingsBox">
-            <div class="form-group">
-              <label for="inputGuestSsid">Nombre de la red para invitados:</label>
-              <input type="text" id="inputGuestSsid" class="mac-input" placeholder="Invitados">
+          <!-- Mensaje cuando la red inalámbrica está desactivada -->
+          <div class="wireless-off-card" id="wirelessDisabledNotice" style="display: none;">
+            <span class="wireless-off-icon">🚫</span>
+            <div>
+              <strong>La interfaz de red inalámbrica está desactivada.</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #666;">
+                La radio Wi-Fi no emitirá ninguna señal. Los clientes solo podrán comunicarse mediante los puertos Ethernet.
+              </p>
             </div>
+          </div>
+
+          <!-- Mensaje explicativo cuando está en modo Ampliar -->
+          <div class="wireless-info-card" id="wirelessExtendNotice" style="display: none;">
+            <span class="wireless-info-icon">📡</span>
+            <div>
+              <strong>Ampliando una red inalámbrica existente.</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #555;">
+                Esta estación base repetirá la señal Wi-Fi de la red principal. Los canales y la frecuencia se sincronizan automáticamente con la estación principal.
+              </p>
+            </div>
+          </div>
+
+          <!-- Mensaje explicativo cuando está en modo Conectarse (Cliente) -->
+          <div class="wireless-info-card" id="wirelessJoinNotice" style="display: none;">
+            <span class="wireless-info-icon">🔌</span>
+            <div>
+              <strong>Conectado como cliente inalámbrico.</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #555;">
+                La estación base se conecta a la red Wi-Fi para servicios de red (AirPlay, compartir impresora/disco). No se amplía la cobertura Wi-Fi.
+              </p>
+            </div>
+          </div>
+
+          <!-- Ajustes activos cuando la red inalámbrica está habilitada -->
+          <div id="wirelessActiveSettings">
+            <!-- Entrada de SSID para Crear red -->
+            <div class="form-group" id="groupSsidInput">
+              <label for="inputSsid" id="labelSsid">Nombre de la red inalámbrica:</label>
+              <input type="text" id="inputSsid" class="mac-input" placeholder="Nombre de la red Wi-Fi">
+            </div>
+
+            <!-- Selector de SSID para Ampliar / Conectarse a una red -->
+            <div class="form-group" id="groupDiscoveredSsids" style="display: none;">
+              <label for="selectDiscoveredSsids" id="labelDiscoveredSsids">Nombre de la red inalámbrica:</label>
+              <select id="selectDiscoveredSsids" class="mac-select">
+                <option value="">Buscando redes Wi-Fi al alcance...</option>
+              </select>
+              <div id="boxOtherSsid" style="display: none; margin-top: 8px;">
+                <input type="text" id="inputOtherSsid" class="mac-input" placeholder="Nombre de otra red Wi-Fi">
+              </div>
+            </div>
+
             <div class="form-group">
-              <label for="inputGuestPassword">Contraseña de invitados:</label>
-              <input type="password" id="inputGuestPassword" class="mac-input" placeholder="Contraseña de invitados">
+              <label for="selectSecurity">Seguridad inalámbrica:</label>
+              <select id="selectSecurity" class="mac-select">
+                <option value="WPA2 Personal">WPA2 Personal (Recomendado)</option>
+                <option value="WPA/WPA2 Personal">WPA/WPA2 Personal</option>
+                <option value="WPA2 Enterprise">WPA2 Enterprise</option>
+                <option value="WEP">WEP (Inseguro)</option>
+                <option value="Ninguna">Ninguna (Sin contraseña)</option>
+              </select>
+            </div>
+            <div class="form-group" id="groupWifiPassword">
+              <label for="inputWifiPassword" id="labelWifiPassword">Contraseña de la red inalámbrica:</label>
+              <input type="password" id="inputWifiPassword" class="mac-input" placeholder="Contraseña de Wi-Fi">
+            </div>
+            <div class="form-group" id="groupWifiPasswordConfirm">
+              <label for="inputWifiPasswordConfirm">Verificar contraseña:</label>
+              <input type="password" id="inputWifiPasswordConfirm" class="mac-input" placeholder="Repetir contraseña de Wi-Fi">
+            </div>
+
+            <!-- Opción exclusiva de modo Conectarse (Join) -->
+            <div class="form-group checkbox-group" id="boxAllowEthernetClients" style="display: none;">
+              <label class="mac-checkbox-label">
+                <input type="checkbox" id="checkAllowEthernetClients" checked>
+                <span><strong>Permitir clientes Ethernet</strong></span>
+              </label>
+              <small class="form-help">Permite que los equipos conectados por cable a los puertos Ethernet del AirPort utilicen la conexión inalámbrica.</small>
+            </div>
+
+            <!-- Opciones avanzadas de radio inalámbrica (Solo para modo Crear red) -->
+            <details class="advanced-settings-details" id="wirelessOptionsDetails">
+              <summary class="mac-summary-btn">⚙️ Opciones de red inalámbrica...</summary>
+              <div class="advanced-settings-box">
+                <div class="form-group checkbox-group">
+                  <label class="mac-checkbox-label">
+                    <input type="checkbox" id="check5GHz">
+                    <span>Nombre de red de 5 GHz independiente</span>
+                  </label>
+                </div>
+                <div class="form-group" id="box5GHzSsid" style="display: none; padding-left: 24px;">
+                  <label for="input5GHzSsid">Nombre de red 5 GHz:</label>
+                  <input type="text" id="input5GHzSsid" class="mac-input" placeholder="MiRed 5GHz">
+                </div>
+                <div class="form-group">
+                  <label for="selectChannel24">Canal de 2.4 GHz:</label>
+                  <select id="selectChannel24" class="mac-select">
+                    <option value="auto">Automático</option>
+                    <option value="1">Canal 1</option>
+                    <option value="6">Canal 6</option>
+                    <option value="11">Canal 11</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="selectChannel5">Canal de 5 GHz:</label>
+                  <select id="selectChannel5" class="mac-select">
+                    <option value="auto">Automático</option>
+                    <option value="36">Canal 36</option>
+                    <option value="40">Canal 40</option>
+                    <option value="44">Canal 44</option>
+                    <option value="48">Canal 48</option>
+                    <option value="149">Canal 149</option>
+                    <option value="153">Canal 153</option>
+                    <option value="157">Canal 157</option>
+                    <option value="161">Canal 161</option>
+                  </select>
+                </div>
+                <div class="form-group checkbox-group">
+                  <label class="mac-checkbox-label">
+                    <input type="checkbox" id="checkHiddenNetwork">
+                    <span>Crear red cerrada (ocultar SSID)</span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <!-- Red de invitados (Solo para modo Crear red) -->
+            <div id="guestNetworkOuterBox">
+              <hr class="form-divider">
+              <div class="form-group checkbox-group">
+                <label class="mac-checkbox-label">
+                  <input type="checkbox" id="checkGuestNetwork">
+                  <span><strong>Activar red para invitados</strong></span>
+                </label>
+              </div>
+              <div class="guest-settings" id="guestSettingsBox">
+                <div class="form-group">
+                  <label for="inputGuestSsid">Nombre de la red para invitados:</label>
+                  <input type="text" id="inputGuestSsid" class="mac-input" placeholder="Invitados">
+                </div>
+                <div class="form-group">
+                  <label for="inputGuestPassword">Contraseña de invitados:</label>
+                  <input type="password" id="inputGuestPassword" class="mac-input" placeholder="Contraseña de invitados">
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -471,9 +624,10 @@
   </div>
 
   <!-- Toast / Notificación flotante de estado -->
-  <div class="mac-toast" id="macToast" style="display: none;">
-    <span class="toast-icon">ℹ️</span>
+  <div class="mac-toast" id="macToast" style="display: none;" role="alert" aria-live="assertive">
+    <span class="toast-icon" id="toastIcon">ℹ️</span>
     <span class="toast-message" id="toastMessage">Operación realizada con éxito</span>
+    <button type="button" class="toast-close-btn" id="toastCloseBtn" title="Cerrar aviso" aria-label="Cerrar aviso">✕</button>
   </div>
 
   <script src="/js/app.js"></script>

@@ -2,3 +2,5 @@ node_modules
 GEMINI.md
 .gemini
 .DS_Store
+__pycache__/
+*.pyc
