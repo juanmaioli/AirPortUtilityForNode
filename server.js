@@ -313,18 +313,33 @@ app.post('/api/scan', async (req, res) => {
         }
       });
       memoryData = data;
+    } else {
+      // Si no se descubrió ningún dispositivo en la red física, marcar las estaciones como offline
+      data.devices.forEach(d => {
+        d.status = 'offline';
+        d.led = 'amber-blinking';
+      });
+      memoryData = data;
     }
 
     res.json({
       success: true,
       foundCount: discovered.length,
       devices: data.devices,
-      discovered: discovered.length > 0 ? discovered : data.devices
+      discovered: discovered
     });
   } catch (err) {
     console.error('Error en escaneo:', err);
     res.status(500).json({ error: 'Fallo al escanear la red' });
   }
+});
+
+// Simular estado sin dispositivos para pruebas
+app.post('/api/simulate-empty', (req, res) => {
+  const data = readData();
+  data.devices = [];
+  memoryData = data;
+  res.json({ success: true, message: 'Simulación: Sin estaciones base', data });
 });
 
 // Endpoint para expulsar disco USB de forma segura

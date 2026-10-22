@@ -71,6 +71,23 @@
         <!-- Renderizado dinámicamente con JS -->
       </div>
 
+      <!-- Pantalla de estado vacío estilo Apple AirPort Utility -->
+      <div class="empty-state-card" id="emptyStateOverlay" style="display: none;">
+        <div class="empty-icon-wrap">
+          <img src="/images/warning.png" alt="Advertencia" class="empty-warning-img">
+        </div>
+        <h3 class="empty-title">La Utilidad AirPort no ha encontrado ninguna estación base Wi-Fi de Apple</h3>
+        <p class="empty-desc">
+          Asegúrese de que el dispositivo Apple Wi-Fi que desea configurar esté enchufado a la corriente eléctrica y conectado a esta red.
+        </p>
+        <div class="empty-actions">
+          <button class="mac-btn primary" id="btnEmptyRetry">
+            <span class="refresh-spinner" id="emptyRetrySpinner">🔄</span>
+            <span>Volver a explorar</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Popover flotante estilo Apple -->
       <div class="apple-popover" id="devicePopover" style="display: none;" role="dialog" aria-labelledby="popoverTitle">
         <div class="popover-arrow" id="popoverArrow"></div>

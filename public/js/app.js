@@ -28,6 +28,11 @@ const btnResetAll = document.getElementById('btnResetAll');
 const btnAddDevice = document.getElementById('btnAddDevice');
 const macToast = document.getElementById('macToast');
 const toastMessage = document.getElementById('toastMessage');
+const emptyStateOverlay = document.getElementById('emptyStateOverlay');
+const btnEmptyRetry = document.getElementById('btnEmptyRetry');
+const emptyRetrySpinner = document.getElementById('emptyRetrySpinner');
+const globalStatusPill = document.getElementById('globalStatusPill');
+const globalStatusText = document.getElementById('globalStatusText');
 
 // Elementos del Popover
 const popoverThumb = document.getElementById('popoverThumb');
@@ -57,6 +62,17 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Registrar eventos
 function initEventListeners() {
+  // Botón Volver a explorar en pantalla vacía
+  if (btnEmptyRetry) {
+    btnEmptyRetry.addEventListener('click', () => {
+      emptyRetrySpinner.classList.add('spinning');
+      btnRefresh.click();
+      setTimeout(() => {
+        emptyRetrySpinner.classList.remove('spinning');
+      }, 1500);
+    });
+  }
+
   // Menú desplegable Otras estaciones
   btnOtherStations.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -266,6 +282,27 @@ function renderTopology() {
   nodesLayer.innerHTML = '';
   topologySvg.innerHTML = '';
 
+  const hasDevices = state.devices && state.devices.length > 0;
+
+  // Estado vacío oficial de Apple si no hay estaciones base
+  if (!hasDevices) {
+    if (emptyStateOverlay) emptyStateOverlay.style.display = 'block';
+    if (globalStatusPill) {
+      globalStatusPill.innerHTML = `<span class="status-dot amber"></span><span>Sin estaciones</span>`;
+    }
+    closePopover();
+  } else {
+    if (emptyStateOverlay) emptyStateOverlay.style.display = 'none';
+    if (globalStatusPill) {
+      const anyOffline = state.devices.some(d => d.status === 'offline');
+      if (anyOffline) {
+        globalStatusPill.innerHTML = `<span class="status-dot amber"></span><span>Atención requerida</span>`;
+      } else {
+        globalStatusPill.innerHTML = `<span class="status-dot green"></span><span>En línea</span>`;
+      }
+    }
+  }
+
   const canvasWidth = nodesLayer.clientWidth || 900;
   const positions = {};
 
@@ -341,17 +378,18 @@ function renderTopology() {
 function drawLine(p1, p2) {
   const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
   line.setAttribute('x1', p1.x);
-  line.setAttribute('y1', p1.y + 40);
+  line.setAttribute('y1', p1.y + 85);
   line.setAttribute('x2', p2.x);
-  line.setAttribute('y2', p2.y - 40);
+  line.setAttribute('y2', p2.y - 68);
   line.setAttribute('class', 'topo-link-line solid');
   topologySvg.appendChild(line);
 }
 
 // Crear elemento visual de un nodo
 function createNodeElement(item) {
+  const isOffline = item.status === 'offline';
   const node = document.createElement('div');
-  node.className = `topo-node ${state.selectedDeviceId === item.id ? 'active' : ''}`;
+  node.className = `topo-node ${state.selectedDeviceId === item.id ? 'active' : ''} ${isOffline ? 'offline' : ''}`;
   node.style.left = `${item.pos.x}px`;
   node.style.top = `${item.pos.y}px`;
   node.dataset.id = item.id;
@@ -360,7 +398,7 @@ function createNodeElement(item) {
   let ledSrc = '/images/led-green.png';
   let isBlinking = false;
 
-  if (item.led === 'amber' || item.led === 'amber-blinking' || item.status === 'restarting') {
+  if (isOffline || item.led === 'amber' || item.led === 'amber-blinking' || item.status === 'restarting') {
     ledSrc = '/images/led-amber.png';
     isBlinking = true;
   } else if (item.led === 'off') {
@@ -369,16 +407,18 @@ function createNodeElement(item) {
 
   const hasDisks = item.disks && item.disks.length > 0;
   const diskBadgeHtml = hasDisks ? `<img src="/images/airdisk.png" class="node-usb-badge" title="Unidad USB conectada: ${escapeHtml(item.disks.map(d => d.name).join(', '))}" alt="USB">` : '';
+  const warningBadgeHtml = isOffline ? `<img src="/images/warning.png" class="node-warning-badge" title="Dispositivo desconectado o fuera de alcance" alt="Alerta">` : '';
 
   node.innerHTML = `
     <div class="node-graphic-wrap">
       <img src="${item.image}" alt="${escapeHtml(item.name)}" class="node-device-img ${item.isInternet ? 'internet-globe' : ''}">
       <img src="${ledSrc}" alt="LED" class="node-led ${isBlinking ? 'led-amber blinking' : ''}">
       ${diskBadgeHtml}
+      ${warningBadgeHtml}
     </div>
     <div class="node-label-box">
       <div class="node-title">${escapeHtml(item.name)}</div>
-      <div class="node-subtitle">${escapeHtml(item.isInternet ? 'Conexión a Internet' : item.modelName)}</div>
+      <div class="node-subtitle">${escapeHtml(item.isInternet ? 'Conexión a Internet' : (isOffline ? 'No disponible' : item.modelName))}</div>
     </div>
   `;
 
@@ -403,7 +443,10 @@ function openDevicePopover(item) {
   popoverSubtitle.textContent = isInternet ? 'Conexión a Internet' : item.modelName;
 
   // LED y estado
-  if (item.status === 'restarting') {
+  if (item.status === 'offline') {
+    popoverLed.src = '/images/led-amber.png';
+    popoverStatusText.innerHTML = `<span class="dot-indicator amber"></span> No disponible en la red`;
+  } else if (item.status === 'restarting') {
     popoverLed.src = '/images/led-amber.png';
     popoverStatusText.innerHTML = `<span class="dot-indicator amber"></span> Reiniciando estación base...`;
   } else if (item.led === 'amber') {
