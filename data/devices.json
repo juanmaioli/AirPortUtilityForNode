@@ -1,0 +1,56 @@
+{
+  "internet": {
+    "id": "internet",
+    "name": "Internet",
+    "status": "connected",
+    "led": "green",
+    "connectionType": "DHCP",
+    "ipAddress": "172.21.5.1",
+    "routerAddress": "172.21.5.1",
+    "dnsServers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "domainName": "local"
+  },
+  "devices": [
+    {
+      "id": "base-172-21-5-133",
+      "parentId": "internet",
+      "model": "extreme_n",
+      "modelName": "AirPort Extreme 802.11n",
+      "name": "AramisAirPort",
+      "image": "/images/airport-extreme-n.png",
+      "status": "normal",
+      "led": "green",
+      "ipAddress": "172.21.5.133",
+      "lanIp": "172.21.5.133",
+      "wanIp": "172.21.5.133",
+      "macAddress": "00:1b:63:f3:20:f0",
+      "ethernetMac": "00:1b:63:f3:20:f0",
+      "radioMac": "00:1c:b3:ae:3a:4e",
+      "channel": "11",
+      "serialNumber": "C02KJ890APPLE",
+      "firmwareVersion": "7.8.1",
+      "firmwareUpdateAvailable": false,
+      "wirelessMode": "create",
+      "ssid": "AramisAirportWiFi",
+      "security": "WPA2 Personal",
+      "wirelessPassword": "",
+      "guestNetwork": false,
+      "routerMode": "bridge",
+      "clients": [
+        {
+          "name": "Equipo Local (Juan)",
+          "ip": "172.21.5.5",
+          "mac": "b4:2e:99:f4:15:f3",
+          "signal": "-42 dBm",
+          "rate": "450 Mbps"
+        }
+      ],
+      "ip": "172.21.5.133",
+      "desc": "Apple Base Station V7.8.1",
+      "errorStatus": 0
+    }
+  ]
+}

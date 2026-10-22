@@ -1,0 +1,20 @@
+{
+  "name": "airportutility",
+  "version": "1.1.0",
+  "description": "Versión web para navegador de AirPort Utility (Apple OS X) en Node.js",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "airport",
+    "airport-utility",
+    "apple",
+    "networking"
+  ],
+  "author": "Juan Gabriel Maioli",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

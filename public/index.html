@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Utilidad AirPort</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="mac-window">
+    <!-- Barra de título OS X -->
+    <header class="mac-titlebar">
+      <div class="window-controls">
+        <span class="control-btn close" title="Cerrar"></span>
+        <span class="control-btn minimize" title="Minimizar"></span>
+        <span class="control-btn zoom" title="Maximizar"></span>
+      </div>
+      <div class="window-title">
+        <img src="/images/app-icon.png" alt="Icono Utilidad AirPort" class="title-icon">
+        <span>Utilidad AirPort</span>
+      </div>
+      <div class="titlebar-actions">
+        <span class="connection-status-pill" id="globalStatusPill">
+          <span class="status-dot green"></span>
+          <span id="globalStatusText">En línea</span>
+        </span>
+      </div>
+    </header>
+
+    <!-- Barra de herramientas superior -->
+    <div class="mac-toolbar">
+      <div class="toolbar-left">
+        <div class="dropdown">
+          <button class="mac-btn dropdown-toggle" id="btnOtherStations" aria-expanded="false">
+            <span class="wifi-icon">📶</span>
+            <span>Otras estaciones base Wi-Fi</span>
+            <span class="badge" id="devicesCountBadge">2</span>
+            <span class="arrow-down">▾</span>
+          </button>
+          <div class="dropdown-menu" id="dropdownMenuStations">
+            <!-- Dispositivos cargados dinámicamente -->
+          </div>
+        </div>
+
+        <button class="mac-btn" id="btnAddDevice" title="Añadir nueva estación base AirPort">
+          <span>➕ Añadir estación base...</span>
+        </button>
+      </div>
+
+      <div class="toolbar-right">
+        <button class="mac-btn" id="btnRefresh" title="Explorar red en busca de estaciones base AirPort">
+          <span class="refresh-spinner" id="refreshSpinner">🔄</span>
+          <span>Explorar</span>
+        </button>
+        <button class="mac-btn secondary" id="btnResetAll" title="Restablecer configuración predeterminada">
+          <span>Restablecer</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Lienzo de topología de red -->
+    <main class="topology-canvas" id="topologyCanvas">
+      <!-- Capa de líneas SVG de conexión -->
+      <svg class="topology-lines" id="topologySvg" xmlns="http://www.w3.org/2000/svg">
+        <!-- Generado dinámicamente -->
+      </svg>
+
+      <!-- Contenedor de nodos de la red -->
+      <div class="nodes-layer" id="nodesLayer">
+        <!-- Renderizado dinámicamente con JS -->
+      </div>
+
+      <!-- Popover flotante estilo Apple -->
+      <div class="apple-popover" id="devicePopover" style="display: none;" role="dialog" aria-labelledby="popoverTitle">
+        <div class="popover-arrow" id="popoverArrow"></div>
+        <div class="popover-header">
+          <div class="popover-icon-box">
+            <img id="popoverThumb" src="/images/airport-extreme-ac.png" alt="Dispositivo">
+            <img id="popoverLed" class="popover-led" src="/images/led-green.png" alt="Estado LED">
+          </div>
+          <div class="popover-titles">
+            <h3 id="popoverTitle">AirPort Extreme</h3>
+            <span class="popover-subtitle" id="popoverSubtitle">AirPort Extreme 802.11ac</span>
+          </div>
+        </div>
+
+        <div class="popover-body">
+          <div class="info-row">
+            <span class="info-label">Estado:</span>
+            <span class="info-val status-val" id="popoverStatusText">
+              <span class="dot-indicator green"></span>
+              Conexión excelente
+            </span>
+          </div>
+
+          <div class="info-row" id="rowIpAddress">
+            <span class="info-label">Dirección IP:</span>
+            <span class="info-val monospace" id="popoverIp">10.0.1.1</span>
+          </div>
+
+          <div class="info-row" id="rowWanIp">
+            <span class="info-label">IP de la WAN:</span>
+            <span class="info-val monospace" id="popoverWanIp">172.21.5.1</span>
+          </div>
+
+          <div class="info-row" id="rowLanIp">
+            <span class="info-label">IP de la LAN:</span>
+            <span class="info-val monospace" id="popoverLanIp">172.21.5.133</span>
+          </div>
+
+          <div class="info-row" id="rowFirmware">
+            <span class="info-label">Versión:</span>
+            <div class="firmware-box">
+              <span class="info-val monospace" id="popoverFirmware">7.9.1</span>
+              <button class="mac-btn mini" id="btnUpdateFirmware" style="display: none;">Actualizar...</button>
+            </div>
+          </div>
+
+          <div class="info-row" id="rowMac">
+            <span class="info-label">ID de AirPort:</span>
+            <span class="info-val monospace" id="popoverMac">68:a8:6d:4f:21:88</span>
+          </div>
+
+          <div class="info-row" id="rowDisks" style="display: none;">
+            <span class="info-label">Unidad USB:</span>
+            <span class="info-val" id="popoverDisks">
+              <span class="disk-pill"><img src="/images/airdisk.png" class="mini-disk-icon" alt=""> <span id="popoverDiskName">untitled</span></span>
+            </span>
+          </div>
+
+          <!-- Clientes conectados -->
+          <div class="popover-clients-section" id="popoverClientsSection">
+            <div class="clients-header">
+              <span class="clients-title">Clientes inalámbricos:</span>
+              <span class="badge" id="popoverClientsBadge">3</span>
+            </div>
+            <ul class="clients-list" id="popoverClientsList">
+              <!-- Cargado dinámicamente -->
+            </ul>
+          </div>
+        </div>
+
+        <div class="popover-footer" id="popoverFooter">
+          <button class="mac-btn secondary" id="btnPopoverRestart" title="Reiniciar estación base">Reiniciar</button>
+          <button class="mac-btn primary" id="btnPopoverEdit">Editar</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Barra de pie de ventana -->
+    <footer class="mac-statusbar">
+      <div class="statusbar-left">
+        <span id="systemHostInfo">Host: localhost (Linux)</span>
+      </div>
+      <div class="statusbar-right">
+        <span>Frecuencia: 2.4 GHz / 5 GHz</span>
+        <span class="divider">|</span>
+        <span id="topologyCount">2 dispositivos AirPort</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Modal de configuración estilo Hoja / Sheet de OS X -->
+  <div class="modal-backdrop" id="editModalBackdrop" style="display: none;">
+    <div class="mac-sheet" role="dialog" aria-modal="true" aria-labelledby="sheetDeviceName">
+      <!-- Cabecera del Sheet -->
+      <div class="sheet-header">
+        <div class="sheet-device-preview">
+          <img id="sheetDeviceImg" src="/images/airport-extreme-ac.png" alt="Preview">
+          <div>
+            <h2 id="sheetDeviceName">AirPort Extreme de Juan</h2>
+            <span class="sheet-model" id="sheetDeviceModel">AirPort Extreme 802.11ac</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pestañas de configuración -->
+      <nav class="sheet-tabs" role="tablist">
+        <button class="tab-btn active" data-tab="tab-basestation" role="tab" aria-selected="true">
+          <span class="tab-icon">⚙️</span>
+          <span>Estación base</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-internet" role="tab" aria-selected="false">
+          <span class="tab-icon">🌐</span>
+          <span>Internet</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-wireless" role="tab" aria-selected="false">
+          <span class="tab-icon">📶</span>
+          <span>Inalámbrica</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-network" role="tab" aria-selected="false">
+          <span class="tab-icon">🔀</span>
+          <span>Red</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-disks" id="tabBtnDisks" role="tab" aria-selected="false">
+          <span class="tab-icon">💾</span>
+          <span>Discos</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-airplay" id="tabBtnAirplay" role="tab" aria-selected="false">
+          <span class="tab-icon">🔊</span>
+          <span>AirPlay</span>
+        </button>
+      </nav>
+
+      <!-- Contenido de las pestañas -->
+      <div class="sheet-content">
+        <!-- 1. Pestaña Estación Base -->
+        <div class="tab-pane active" id="tab-basestation">
+          <div class="form-group">
+            <label for="inputBaseName">Nombre de la estación base:</label>
+            <input type="text" id="inputBaseName" class="mac-input" placeholder="Nombre de la estación">
+          </div>
+          <div class="form-group">
+            <label for="inputBasePassword">Contraseña de la estación base:</label>
+            <input type="password" id="inputBasePassword" class="mac-input" placeholder="Contraseña de administración">
+          </div>
+          <div class="form-group">
+            <label for="inputBasePasswordConfirm">Verificar contraseña:</label>
+            <input type="password" id="inputBasePasswordConfirm" class="mac-input" placeholder="Repetir contraseña">
+          </div>
+          <div class="form-group checkbox-group">
+            <label class="mac-checkbox-label">
+              <input type="checkbox" id="checkRememberKeychain" checked>
+              <span>Recordar esta contraseña en mi llavero</span>
+            </label>
+          </div>
+          <hr class="form-divider">
+          <div class="form-group">
+            <label for="inputBackToMyMac">Volver a mi Mac (Apple ID):</label>
+            <input type="email" id="inputBackToMyMac" class="mac-input" placeholder="usuario@icloud.com">
+            <small class="form-help">Permite acceder a los discos y configurar la estación de forma remota.</small>
+          </div>
+        </div>
+
+        <!-- 2. Pestaña Internet -->
+        <div class="tab-pane" id="tab-internet">
+          <div class="form-group">
+            <label for="selectConnectVia">Conectar mediante:</label>
+            <select id="selectConnectVia" class="mac-select">
+              <option value="DHCP">DHCP</option>
+              <option value="Static">IP estática</option>
+              <option value="PPPoE">PPPoE</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="inputWanIp">Dirección IPv4 WAN:</label>
+            <input type="text" id="inputWanIp" class="mac-input monospace" placeholder="172.21.5.133">
+          </div>
+          <div class="form-group">
+            <label for="inputSubnetMask">Máscara de subred:</label>
+            <input type="text" id="inputSubnetMask" class="mac-input monospace" value="255.255.255.0">
+          </div>
+          <div class="form-group">
+            <label for="inputRouterIp">Dirección del router:</label>
+            <input type="text" id="inputRouterIp" class="mac-input monospace" value="172.21.5.1">
+          </div>
+          <div class="form-group">
+            <label for="inputDnsServers">Servidores DNS:</label>
+            <input type="text" id="inputDnsServers" class="mac-input monospace" value="172.21.5.1, 1.1.1.1">
+          </div>
+          <div class="form-group">
+            <label for="inputDomainName">Nombre de dominio:</label>
+            <input type="text" id="inputDomainName" class="mac-input" value="local">
+          </div>
+        </div>
+
+        <!-- 3. Pestaña Inalámbrica -->
+        <div class="tab-pane" id="tab-wireless">
+          <div class="form-group">
+            <label for="selectWirelessMode">Modo de red:</label>
+            <select id="selectWirelessMode" class="mac-select">
+              <option value="create">Crear una red inalámbrica</option>
+              <option value="extend">Ampliar una red inalámbrica</option>
+              <option value="off">Desactivada</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="inputSsid">Nombre de la red inalámbrica (SSID):</label>
+            <input type="text" id="inputSsid" class="mac-input" placeholder="Nombre de tu red Wi-Fi">
+          </div>
+          <div class="form-group">
+            <label for="selectSecurity">Seguridad inalámbrica:</label>
+            <select id="selectSecurity" class="mac-select">
+              <option value="WPA2 Personal">WPA2 Personal (Recomendado)</option>
+              <option value="WPA/WPA2 Personal">WPA/WPA2 Personal</option>
+              <option value="WPA2 Enterprise">WPA2 Enterprise</option>
+              <option value="Ninguna">Ninguna (Insegura)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="inputWifiPassword">Contraseña de la red inalámbrica:</label>
+            <input type="password" id="inputWifiPassword" class="mac-input" placeholder="Contraseña de Wi-Fi">
+          </div>
+
+          <hr class="form-divider">
+
+          <div class="form-group checkbox-group">
+            <label class="mac-checkbox-label">
+              <input type="checkbox" id="checkGuestNetwork">
+              <span><strong>Activar red para invitados</strong></span>
+            </label>
+          </div>
+          <div class="guest-settings" id="guestSettingsBox">
+            <div class="form-group">
+              <label for="inputGuestSsid">Nombre de la red para invitados:</label>
+              <input type="text" id="inputGuestSsid" class="mac-input" placeholder="Invitados">
+            </div>
+            <div class="form-group">
+              <label for="inputGuestPassword">Contraseña de invitados:</label>
+              <input type="password" id="inputGuestPassword" class="mac-input" placeholder="Contraseña de invitados">
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Pestaña Red -->
+        <div class="tab-pane" id="tab-network">
+          <div class="form-group">
+            <label for="selectRouterMode">Modo del router:</label>
+            <select id="selectRouterMode" class="mac-select">
+              <option value="nat_dhcp">DHCP y NAT</option>
+              <option value="dhcp_only">Sólo DHCP</option>
+              <option value="bridge">Desactivado (Modo puente)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="inputDhcpRange">Rango de DHCP:</label>
+            <input type="text" id="inputDhcpRange" class="mac-input monospace" value="10.0.1.2 a 10.0.1.200">
+          </div>
+          <div class="form-group">
+            <label>Reservas DHCP:</label>
+            <div class="mini-table-box">
+              <table class="mac-table">
+                <thead>
+                  <tr>
+                    <th>Descripción</th>
+                    <th>Dirección MAC</th>
+                    <th>Dirección IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Impresora AirPrint</td>
+                    <td class="monospace">00:11:22:33:44:55</td>
+                    <td class="monospace">10.0.1.99</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Pestaña Discos -->
+        <div class="tab-pane" id="tab-disks">
+          <div class="form-group checkbox-group">
+            <label class="mac-checkbox-label">
+              <input type="checkbox" id="checkFileSharing" checked>
+              <span><strong>Activar uso compartido de archivos</strong></span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label for="selectDiskSecurity">Proteger discos compartidos:</label>
+            <select id="selectDiskSecurity" class="mac-select">
+              <option value="base">Con contraseña de la estación base</option>
+              <option value="disk">Con una contraseña de disco</option>
+              <option value="accounts">Con cuentas de usuario</option>
+            </select>
+          </div>
+          <div class="form-group checkbox-group">
+            <label class="mac-checkbox-label">
+              <input type="checkbox" id="checkWanDisks">
+              <span>Compartir discos a través de la WAN (Internet)</span>
+            </label>
+          </div>
+          <hr class="form-divider">
+          <div class="form-group">
+            <label>Unidades USB externas conectadas:</label>
+            <div class="disks-container" id="disksListContainer">
+              <!-- Renderizado de discos USB detectados -->
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 15px;">
+            <small class="form-help">
+              💡 Para conectar a esta unidad desde el Explorador o Finder: <br>
+              <code class="monospace" id="smbPathHint">smb://172.21.5.133/untitled</code>
+            </small>
+          </div>
+        </div>
+
+        <!-- 6. Pestaña AirPlay -->
+        <div class="tab-pane" id="tab-airplay">
+          <div class="form-group checkbox-group">
+            <label class="mac-checkbox-label">
+              <input type="checkbox" id="checkAirplayEnabled" checked>
+              <span><strong>Activar AirPlay</strong></span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label for="inputSpeakerName">Nombre del altavoz AirPlay:</label>
+            <input type="text" id="inputSpeakerName" class="mac-input" placeholder="Parlantes Living">
+          </div>
+          <div class="form-group">
+            <label for="inputSpeakerPassword">Contraseña de AirPlay (opcional):</label>
+            <input type="password" id="inputSpeakerPassword" class="mac-input" placeholder="Opcional">
+          </div>
+        </div>
+      </div>
+
+      <!-- Pie del Sheet -->
+      <div class="sheet-footer">
+        <button class="mac-btn secondary" id="btnCancelEdit">Cancelar</button>
+        <button class="mac-btn primary" id="btnSaveEdit">Actualizar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para Añadir Estación Base -->
+  <div class="modal-backdrop" id="addDeviceModalBackdrop" style="display: none;">
+    <div class="mac-sheet modal-sm" role="dialog" aria-modal="true" aria-labelledby="addModalTitle">
+      <div class="sheet-header">
+        <h2 id="addModalTitle">Añadir nueva estación base AirPort</h2>
+      </div>
+      <div class="sheet-content">
+        <div class="form-group">
+          <label for="addSelectModel">Modelo de estación:</label>
+          <select id="addSelectModel" class="mac-select">
+            <option value="extreme_ac" data-img="/images/airport-extreme-ac.png">AirPort Extreme 802.11ac (Torre)</option>
+            <option value="timecapsule" data-img="/images/airport-timecapsule.png">AirPort Time Capsule (Plana)</option>
+            <option value="express" data-img="/images/airport-express.png">AirPort Express 802.11n (con AirPlay)</option>
+            <option value="extreme_n" data-img="/images/airport-extreme-n.png">AirPort Extreme 802.11n</option>
+            <option value="express_legacy" data-img="/images/airport-express-legacy.png">AirPort Express 802.11g (Enchufe)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="addInputName">Nombre de la estación base:</label>
+          <input type="text" id="addInputName" class="mac-input" value="AirPort de Oficina">
+        </div>
+        <div class="form-group">
+          <label for="addSelectParent">Conectar a la red de:</label>
+          <select id="addSelectParent" class="mac-select">
+            <!-- Nodos padre -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="addInputIp">Dirección IP LAN sugerida:</label>
+          <input type="text" id="addInputIp" class="mac-input monospace" value="10.0.1.50">
+        </div>
+      </div>
+      <div class="sheet-footer">
+        <button class="mac-btn secondary" id="btnAddCancel">Cancelar</button>
+        <button class="mac-btn primary" id="btnAddConfirm">Crear estación</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast / Notificación flotante de estado -->
+  <div class="mac-toast" id="macToast" style="display: none;">
+    <span class="toast-icon">ℹ️</span>
+    <span class="toast-message" id="toastMessage">Operación realizada con éxito</span>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
