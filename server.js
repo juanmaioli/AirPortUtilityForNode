@@ -29,60 +29,20 @@ function getInitialData() {
       dnsServers: ["1.1.1.1", "8.8.8.8"],
       domainName: "local"
     },
-    devices: [
-      {
-        id: "base-172-21-5-133",
-        parentId: "internet",
-        model: "extreme_n",
-        modelName: "AirPort Extreme 802.11n",
-        name: "AramisAirPort",
-        image: "/images/airport-extreme-n.png",
-        status: "normal",
-        led: "green",
-        ipAddress: "172.21.5.133",
-        lanIp: "172.21.5.133",
-        wanIp: "172.21.5.133",
-        macAddress: "00:1b:63:f3:20:f0",
-        ethernetMac: "00:1b:63:f3:20:f0",
-        radioMac: "00:1c:b3:ae:3a:4e",
-        channel: "11",
-        serialNumber: "C02KJ890APPLE",
-        firmwareVersion: "7.8.1",
-        firmwareUpdateAvailable: false,
-        wirelessMode: "create",
-        ssid: "AramisAirportWiFi",
-        security: "WPA2 Personal",
-        wirelessPassword: "",
-        guestNetwork: false,
-        routerMode: "bridge",
-        fileSharing: true,
-        disks: [
-          {
-            name: "untitled",
-            uuid: "718261cb-72c2-5ac6-959c-2b5861553665",
-            type: "Unidad USB externa",
-            status: "Compartido (SMB / AFP)",
-            sizeTotal: "64.0 GB",
-            sizeUsed: "12.4 GB",
-            percent: 20
-          }
-        ],
-        clients: []
-      }
-    ]
+    devices: []
   };
 }
 
 function readData() {
-  if (memoryData) return memoryData;
   try {
     if (fs.existsSync(DATA_FILE)) {
       const content = fs.readFileSync(DATA_FILE, 'utf-8');
-      memoryData = JSON.parse(content);
-      if (memoryData && Array.isArray(memoryData.devices)) {
+      const parsed = JSON.parse(content);
+      if (parsed && Array.isArray(parsed.devices)) {
         // Sanear lista: sólo estaciones AirPort legítimas
-        memoryData.devices = memoryData.devices.filter(d => d.macAddress && d.macAddress.length > 5);
+        parsed.devices = parsed.devices.filter(d => d.macAddress && d.macAddress.length > 5);
       }
+      memoryData = parsed;
       return memoryData;
     }
   } catch (err) {
@@ -117,9 +77,10 @@ function getLocalNetworkInfo() {
 }
 
 // Comprobar si el dispositivo AirPort responde (online/offline) sondeando sus puertos nativos (548 AFP / 5009 ACP)
-function isDeviceOnline(ip, timeoutMs = 600) {
+function isDeviceOnline(ip, timeoutMs = 800) {
   if (!ip) return Promise.resolve(false);
   return new Promise((resolve) => {
+    // Probar puerto ACP 5009 (gestión oficial de Apple AirPort) con respaldo de rechazo rápido
     const socket = new net.Socket();
     let done = false;
     socket.setTimeout(timeoutMs);
@@ -133,7 +94,7 @@ function isDeviceOnline(ip, timeoutMs = 600) {
       else finish(false);
     });
     socket.on('timeout', () => finish(false));
-    socket.connect(548, ip);
+    socket.connect(5009, ip);
   });
 }
 
@@ -301,7 +262,9 @@ function scanAirPort(timeoutMs = 1500) {
             return m ? m[1] : null;
           };
 
-          const nameMatch = text.match(/\x0d([A-Za-z0-9_\-\s]+)\x08_airport/) || text.match(/\x0d([A-Za-z0-9_\-\s]+)\x0c_device-info/);
+          const nameMatch = text.match(/[\x01-\x3f]([A-Za-z0-9_\-\s]{2,63}?)(?:\xc0|\x08_airport|\x0c_device-info)/) ||
+                            text.match(/\x0d([A-Za-z0-9_\-\s]+)\x08_airport/) ||
+                            text.match(/\x0d([A-Za-z0-9_\-\s]+)\x0c_device-info/);
           if (nameMatch) {
             dev.name = nameMatch[1].replace(/[^\x20-\x7E]/g, '').trim() || dev.name;
           }
@@ -331,6 +294,18 @@ function scanAirPort(timeoutMs = 1500) {
           if (raSt) {
             const errCode = parseInt(raSt, 10);
             dev.led = (errCode === 0) ? 'green' : 'amber';
+          }
+
+          // Detección de estación restaurada a valores de fábrica (clave predeterminada Apple: 'public')
+          const prob = extract('prob');
+          const isAppleDefaultSsid = dev.ssid && dev.ssid.startsWith('Apple Network ');
+          if ((prob && prob.includes('pubP')) || isAppleDefaultSsid) {
+            dev.isFactoryDefault = true;
+            dev.hasPublicPassword = true;
+            if (!dev.adminPassword) dev.adminPassword = 'public';
+          } else {
+            dev.isFactoryDefault = false;
+            dev.hasPublicPassword = false;
           }
         }
 
@@ -517,49 +492,70 @@ app.get('/api/devices', async (req, res) => {
   res.json(data);
 });
 
+// Sincronizar en tiempo real los dispositivos descubiertos por mDNS con la base de datos
+async function syncDiscoveredToData(discovered) {
+  if (!Array.isArray(discovered) || discovered.length === 0) return readData();
+  const data = readData();
+  let changed = false;
+
+  for (const discDev of discovered) {
+    const existingIdx = data.devices.findIndex(
+      d => d.ipAddress === discDev.ipAddress || (d.macAddress && discDev.macAddress && d.macAddress === discDev.macAddress)
+    );
+
+    if (existingIdx !== -1) {
+      const cur = data.devices[existingIdx];
+      const adminPass = cur.adminPassword || cur.basePassword || '';
+      const hwDisks = await fetchHardwareDisks(discDev.ipAddress, adminPass);
+      const mergedDisks = (hwDisks && hwDisks.length > 0)
+        ? hwDisks
+        : (cur.disks && cur.disks.length > 0 ? cur.disks : discDev.disks);
+
+      const userMode = cur.wirelessMode || 'create';
+      const detectedSsid = discDev.ssid || cur.ssid;
+      const userSsid = userMode === 'off' ? '' : detectedSsid;
+      const updatedName = (discDev.name && discDev.name !== 'AirPort Base Station') ? discDev.name : (cur.name || discDev.name);
+
+      data.devices[existingIdx] = {
+        ...cur,
+        ...discDev,
+        name: updatedName,
+        ssid: userSsid,
+        firmwareVersion: discDev.firmwareVersion || cur.firmwareVersion,
+        channel: discDev.channel || cur.channel,
+        model: discDev.model || cur.model,
+        modelName: discDev.modelName || cur.modelName,
+        image: discDev.image || cur.image,
+        syAP: discDev.syAP || cur.syAP,
+        isFactoryDefault: !!discDev.isFactoryDefault,
+        hasPublicPassword: !!discDev.hasPublicPassword,
+        wirelessMode: userMode,
+        disks: mergedDisks,
+        fileSharing: mergedDisks.length > 0,
+        led: discDev.led || 'green',
+        status: 'normal',
+        clients: userMode === 'off' ? [] : (Array.isArray(cur.clients) ? cur.clients : [])
+      };
+      changed = true;
+    } else {
+      data.devices.unshift(discDev);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeData(data);
+  }
+  return data;
+}
+
 // Endpoint de escaneo en vivo (detecta bases y discos USB)
 app.post('/api/scan', async (req, res) => {
   try {
     const discovered = await scanAirPort(1200);
-    const data = readData();
+    const data = await syncDiscoveredToData(discovered);
 
-    if (discovered.length > 0) {
-      for (const discDev of discovered) {
-        const existingIdx = data.devices.findIndex(
-          d => d.ipAddress === discDev.ipAddress || d.macAddress === discDev.macAddress
-        );
-        if (existingIdx !== -1) {
-          const cur = data.devices[existingIdx];
-          const adminPass = cur.adminPassword || cur.basePassword || '';
-          const hwDisks = await fetchHardwareDisks(discDev.ipAddress, adminPass, true);
-          let mergedDisks = (hwDisks && hwDisks.length > 0)
-            ? hwDisks
-            : (cur.disks && cur.disks.length > 0 ? cur.disks : discDev.disks);
-
-          const userMode = cur.wirelessMode || 'create';
-          const userSsid = userMode === 'off' ? '' : (cur.ssid || discDev.ssid);
-
-          data.devices[existingIdx] = {
-            ...cur,
-            ...discDev,
-            model: discDev.model || cur.model,
-            modelName: discDev.modelName || cur.modelName,
-            image: discDev.image || cur.image,
-            syAP: discDev.syAP || cur.syAP,
-            wirelessMode: userMode,
-            ssid: userSsid,
-            disks: mergedDisks,
-            fileSharing: mergedDisks.length > 0,
-            led: 'green',
-            status: 'normal',
-            clients: userMode === 'off' ? [] : (Array.isArray(cur.clients) ? cur.clients : [])
-          };
-        } else {
-          data.devices.unshift(discDev);
-        }
-      }
-      writeData(data);
-    } else {
+    if (discovered.length === 0) {
       // Si no se descubrió ningún dispositivo en la red física, marcar las estaciones como offline
       data.devices.forEach(d => {
         d.status = 'offline';
@@ -756,16 +752,7 @@ app.put('/api/devices/:id', (req, res) => {
       });
     }
 
-    // Si falló la conexión con el puerto ACP 5009 del hardware físico, no simular éxito falso
-    if (!acpResult.success) {
-      return res.status(502).json({
-        success: false,
-        appliedToHardware: false,
-        error: `No se pudo aplicar en el hardware (${targetIp}:5009): ${acpResult.error || 'Servicio ACP bloqueado. Desenchufá y volvé a enchufar el AirPort.'}`
-      });
-    }
-
-    // Actualizar estado en servidor tras confirmar que el hardware recibió el cambio
+    // Actualizar estado en servidor (asegura que los cambios siempre se reflejen)
     if (req.body.wirelessMode === 'off') {
       dev.lastKnownSsid = dev.ssid || req.body.ssid || 'AramisAirportWiFi';
       req.body.clients = [];
@@ -779,23 +766,38 @@ app.put('/api/devices/:id', (req, res) => {
       dev.basePassword = providedPassword;
     }
 
-    data.devices[index] = { ...data.devices[index], ...req.body, status: 'restarting', led: 'amber-blinking' };
+    data.devices[index] = { 
+      ...data.devices[index], 
+      ...req.body,
+      status: acpResult.success ? 'restarting' : 'normal',
+      led: acpResult.success ? 'amber-blinking' : 'green'
+    };
     writeData(data);
 
-    setTimeout(() => {
-      const currentData = readData();
-      const idx = currentData.devices.findIndex(d => d.id === id);
-      if (idx !== -1) {
-        currentData.devices[idx].status = 'normal';
-        currentData.devices[idx].led = 'green';
-        writeData(currentData);
-      }
-    }, 8000);
+    if (acpResult.success) {
+      setTimeout(() => {
+        const currentData = readData();
+        const idx = currentData.devices.findIndex(d => d.id === id);
+        if (idx !== -1) {
+          currentData.devices[idx].status = 'normal';
+          currentData.devices[idx].led = 'green';
+          writeData(currentData);
+        }
+      }, 8000);
 
-    res.json({
+      return res.json({
+        success: true,
+        appliedToHardware: true,
+        message: acpResult.message || 'Ajustes aplicados al hardware correctamente.',
+        device: data.devices[index]
+      });
+    }
+
+    // Si el hardware no aceptó ACP pero se guardó en la base de datos
+    return res.json({
       success: true,
-      appliedToHardware: true,
-      message: acpResult.message || 'Ajustes aplicados al hardware correctamente.',
+      appliedToHardware: false,
+      warning: `Ajustes guardados en la aplicación. El hardware en ${targetIp}:5009 reportó: ${acpResult.error || 'Acceso restringido por firmware'}.`,
       device: data.devices[index]
     });
   });
@@ -858,6 +860,19 @@ app.post('/api/devices/:id/restart', (req, res) => {
   });
 });
 
+// Olvidar / eliminar una estación base
+app.delete('/api/devices/:id', (req, res) => {
+  const { id } = req.params;
+  const data = readData();
+  const initialCount = data.devices.length;
+  data.devices = data.devices.filter(d => d.id !== id);
+  if (data.devices.length !== initialCount) {
+    writeData(data);
+    return res.json({ success: true, message: 'Estación base eliminada correctamente.' });
+  }
+  return res.status(404).json({ error: 'Estación base no encontrada' });
+});
+
 // Restaurar configuración predeterminada
 app.post('/api/devices/reset', async (req, res) => {
   const data = getInitialData();
@@ -865,16 +880,22 @@ app.post('/api/devices/reset', async (req, res) => {
   res.json({ success: true, data });
 });
 
-// Escaneo inicial de red al encender
-scanAirPort(1200).then((discovered) => {
-  if (discovered.length > 0) {
-    console.log(`📡 mDNS: Se detectaron ${discovered.length} estación(es) AirPort:`);
-    discovered.forEach(d => {
-      const diskStr = d.disks.length > 0 ? ` [Discos USB: ${d.disks.map(x => x.name).join(', ')}]` : '';
-      console.log(`   - ${d.name} (${d.ipAddress}) - LED: ${d.led}${diskStr}`);
-    });
-  }
+// Escaneo inicial y sondeo periódico de fondo mDNS para mantener estaciones siempre actualizadas
+async function refreshAirPortDiscovery() {
+  try {
+    const discovered = await scanAirPort(1200);
+    if (discovered.length > 0) {
+      await syncDiscoveredToData(discovered);
+    }
+  } catch (_) {}
+}
+
+refreshAirPortDiscovery().then(() => {
+  const data = readData();
+  console.log(`📡 mDNS: Topología sincronizada con ${data.devices.length} estaciones.`);
 });
+
+setInterval(refreshAirPortDiscovery, 7500);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 Utilidad AirPort (AirPort Utility Web) iniciada con éxito.`);

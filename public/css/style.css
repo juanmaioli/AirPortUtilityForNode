@@ -293,19 +293,18 @@ body {
 }
 
 .topo-link-line {
-  stroke: rgba(150, 185, 230, 0.35);
-  stroke-width: 2px;
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.5px;
   stroke-linecap: round;
-  stroke-dasharray: 6 4;
-  animation: strokeFlow 1s linear infinite;
+  stroke-dasharray: 4 4;
 }
 
 .topo-link-line.solid {
-  stroke: rgba(150, 185, 230, 0.4);
-  stroke-width: 2px;
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 1.5px;
   stroke-linecap: round;
   stroke-dasharray: none;
-  filter: drop-shadow(0 0 3px rgba(100, 160, 240, 0.25));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
 @keyframes strokeFlow {

@@ -30,8 +30,9 @@ http://localhost:3000
 | **Apagado real de radio Wi-Fi** | Desactivación física de la emisión de radio modificando el diccionario binario `WiFi.radios[0]` (`raWM = 0`) y recarga inmediata con `acRI`. |
 | **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
 | **Reconocimiento inteligente de modelos e imágenes** | Catálogo canónico de Apple (`syAP` 3 a 120 y `_device-info`) con asignación dinámica de imágenes (Torre AC, Plana N, Time Capsule, Express y UFO) y selector manual. |
-| **Topología interactiva** | Visualización en árbol (Internet 🌐, estaciones AirPort y clientes) con líneas SVG dinámicas. |
-| **Escaneo en vivo (mDNS/Bonjour)** | Descubrimiento multicast en tiempo real (`224.0.0.251:5353`) de estaciones Apple y servicios AirDisk. |
+| **Topología interactiva** | Visualización fiel con líneas blancas estilo Apple conectando Internet con estaciones base principales y secundarias en paralelo. |
+| **Escaneo en vivo (mDNS/Bonjour)** | Descubrimiento multicast en tiempo real (`224.0.0.251:5353`) y actualización periódica automática de nombres, SSIDs y estados de red. |
+| **Gestión y desvinculación** | Capacidad de olvidar estaciones base offline directamente desde la interfaz y asignación dinámica de jerarquías de red. |
 | **Seguridad y autenticación** | Validación de clave de administración con soporte para autenticación Legacy y SRP. |
 | **Avisos y accesibilidad (30s)** | Notificaciones de error de alto contraste visibles durante 30 segundos con botón de cierre manual y tipografía optimizada (≥15px). |
 | **Gráficos originales de Apple** | Iconos y modelos 3D auténticos de estaciones AirPort Extreme, Time Capsule y Express extraídos de las imágenes oficiales. |
@@ -54,7 +55,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.3.1)
+├── package.json              # Configuración y dependencias (v1.3.2)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```

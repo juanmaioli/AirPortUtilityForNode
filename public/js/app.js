@@ -161,6 +161,9 @@ function initEventListeners() {
     const rememberedPass = localStorage.getItem('airport_keychain_' + dev.id);
     if (rememberedPass) {
       sessionUnlockedPasswords[dev.id] = rememberedPass;
+    } else if (dev.isFactoryDefault || dev.hasPublicPassword || dev.adminPassword === 'public') {
+      // Estación en estado de fábrica: clave predeterminada de Apple 'public'
+      sessionUnlockedPasswords[dev.id] = 'public';
     }
 
     if (sessionUnlockedPasswords[dev.id]) {
@@ -469,6 +472,8 @@ function renderClientsList(clients = []) {
   }
 }
 
+let lastDataFingerprint = '';
+
 // Sondeo continuo en vivo cada 2.5 segundos
 function startLivePolling() {
   setInterval(async () => {
@@ -481,19 +486,33 @@ function startLivePolling() {
       const res = await fetch('/api/devices');
       if (res.ok) {
         const data = await res.json();
+        const fingerprint = JSON.stringify(data);
+        const hasChanged = fingerprint !== lastDataFingerprint;
+
         state.internet = data.internet;
         state.devices = data.devices;
+        lastDataFingerprint = fingerprint;
 
         if (devicesCountBadge) devicesCountBadge.textContent = state.devices.length;
         if (topologyCount) {
           topologyCount.textContent = `${state.devices.length} dispositivo${state.devices.length === 1 ? '' : 's'} AirPort`;
         }
 
-        // Si el popover de la estación base está abierto, actualizar clientes en tiempo real
+        // Si cambiaron los equipos o su estado, re-renderizar la topología y menú en vivo
+        if (hasChanged) {
+          renderTopology();
+          updateDropdownMenu();
+        }
+
+        // Si el popover de la estación base está abierto, actualizarlo en tiempo real
         if (state.selectedDeviceId && devicePopover.style.display === 'block') {
           const currentDev = getSelectedDevice();
-          if (currentDev && currentDev.clients) {
-            renderClientsList(currentDev.clients);
+          if (currentDev) {
+            if (hasChanged) {
+              openDevicePopover(currentDev);
+            } else if (currentDev.clients) {
+              renderClientsList(currentDev.clients);
+            }
           }
         }
       }
@@ -607,40 +626,67 @@ function renderTopology() {
     y: 110
   };
 
-  // Posición de la estación base principal
-  const primaryDevice = state.devices[0];
-  if (primaryDevice) {
-    positions[primaryDevice.id] = {
-      x: canvasWidth / 2,
-      y: 320
-    };
-  }
+  // Clasificar estaciones por jerarquía real (dependencia del padre)
+  // Nivel 1: Conectadas directamente a Internet (WAN / Switch principal)
+  const rootDevices = state.devices.filter(d => !d.parentId || d.parentId === 'internet');
+  
+  // Nivel 2: Conectadas a otra estación base existente (repetidores / satélites)
+  const childDevices = state.devices.filter(d => d.parentId && d.parentId !== 'internet');
 
-  // Posiciones de estaciones secundarias (distribuidas abajo)
-  const secondaryDevices = state.devices.slice(1);
-  const count = secondaryDevices.length;
-  if (count > 0) {
-    const spacing = Math.min(260, (canvasWidth - 100) / count);
-    const startX = (canvasWidth / 2) - ((count - 1) * spacing) / 2;
+  // Posicionar estaciones de Nivel 1 (horizontalmente distribuidas bajo Internet)
+  const rootCount = rootDevices.length;
+  if (rootCount > 0) {
+    const spacing = Math.min(320, (canvasWidth - 140) / rootCount);
+    const startX = (canvasWidth / 2) - ((rootCount - 1) * spacing) / 2;
 
-    secondaryDevices.forEach((dev, idx) => {
+    rootDevices.forEach((dev, idx) => {
       positions[dev.id] = {
         x: startX + idx * spacing,
-        y: 530
+        y: 320
       };
     });
   }
 
-  // 1. Dibujar líneas SVG de conexión
-  if (primaryDevice) {
-    drawLine(positions['internet'], positions[primaryDevice.id]);
-  }
+  // Posicionar estaciones hijas en Nivel 2 (debajo de su respectivo padre)
+  childDevices.forEach(dev => {
+    const parentPos = positions[dev.parentId];
+    if (parentPos) {
+      const siblings = childDevices.filter(d => d.parentId === dev.parentId);
+      const sibIdx = siblings.indexOf(dev);
+      const sibCount = siblings.length;
+      const sibSpacing = 240;
+      const sibStartX = parentPos.x - ((sibCount - 1) * sibSpacing) / 2;
 
-  secondaryDevices.forEach(dev => {
-    const parentPos = positions[dev.parentId] || positions[primaryDevice ? primaryDevice.id : 'internet'];
+      positions[dev.id] = {
+        x: sibStartX + sibIdx * sibSpacing,
+        y: 530
+      };
+    } else {
+      // Si el padre indicado no existe, posicionar en Nivel 1 como router independiente
+      positions[dev.id] = {
+        x: canvasWidth / 2,
+        y: 320
+      };
+    }
+  });
+
+  // 1. Dibujar líneas SVG de conexión (línea blanca como en la app original)
+  // Conectar Internet con las estaciones base de Nivel 1 (raíz)
+  rootDevices.forEach(dev => {
     const myPos = positions[dev.id];
-    if (parentPos && myPos) {
-      drawLine(parentPos, myPos);
+    if (myPos && positions['internet']) {
+      drawLine(positions['internet'], myPos);
+    }
+  });
+
+  // Conectar estaciones secundarias con su estación padre
+  childDevices.forEach(dev => {
+    if (positions[dev.parentId]) {
+      const parentPos = positions[dev.parentId];
+      const myPos = positions[dev.id];
+      if (parentPos && myPos) {
+        drawLine(parentPos, myPos);
+      }
     }
   });
 
@@ -669,15 +715,29 @@ function renderTopology() {
   });
 }
 
-// Dibujar línea SVG entre dos nodos
+// Dibujar línea SVG entre dos nodos (curva suave estilo OS X)
 function drawLine(p1, p2) {
-  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  line.setAttribute('x1', p1.x);
-  line.setAttribute('y1', p1.y + 85);
-  line.setAttribute('x2', p2.x);
-  line.setAttribute('y2', p2.y - 68);
-  line.setAttribute('class', 'topo-link-line solid');
-  topologySvg.appendChild(line);
+  const startX = p1.x;
+  const startY = p1.y + 85;
+  const endX = p2.x;
+  const endY = p2.y - 68;
+
+  if (Math.abs(startX - endX) < 4) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', startX);
+    line.setAttribute('y1', startY);
+    line.setAttribute('x2', endX);
+    line.setAttribute('y2', endY);
+    line.setAttribute('class', 'topo-link-line solid');
+    topologySvg.appendChild(line);
+  } else {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const midY = (startY + endY) / 2;
+    const d = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'topo-link-line solid');
+    topologySvg.appendChild(path);
+  }
 }
 
 // Crear elemento visual de un nodo
@@ -762,6 +822,8 @@ function openDevicePopover(item) {
     popoverWanIp.textContent = item.ipAddress || '172.21.5.1';
 
     btnPopoverRestart.style.display = 'none';
+    const btnPopoverForget = document.getElementById('btnPopoverForget');
+    if (btnPopoverForget) btnPopoverForget.style.display = 'none';
     btnPopoverEdit.textContent = 'Ajustes WAN';
   } else {
     document.getElementById('rowIpAddress').style.display = 'flex';
@@ -807,6 +869,21 @@ function openDevicePopover(item) {
       }).join(', ');
     } else {
       rowDisks.style.display = 'none';
+    }
+
+    const btnPopoverForget = document.getElementById('btnPopoverForget');
+    if (btnPopoverForget) {
+      btnPopoverForget.style.display = isOffline ? 'inline-flex' : 'none';
+      btnPopoverForget.onclick = async () => {
+        if (confirm(`¿Olvidar la estación base «${item.name}» de la topología?`)) {
+          await fetch(`/api/devices/${item.id}`, { method: 'DELETE' });
+          closePopover();
+          await loadTopologyData();
+          renderTopology();
+          updateDropdownMenu();
+          showToast(`Estación «${item.name}» olvidada`);
+        }
+      };
     }
 
     btnPopoverRestart.style.display = 'inline-flex';
@@ -865,8 +942,11 @@ function getSelectedDevice() {
 // Diálogo modal de solicitud de contraseña de administración
 function promptDevicePassword(dev, onSuccess) {
   authTitle.textContent = `Introduzca la contraseña para «${dev.name}»`;
-  authPromptText.textContent = `Se requiere la contraseña de administración para acceder a la configuración de «${dev.name}».`;
-  inputAuthPassword.value = '';
+  const isDefault = dev.isFactoryDefault || dev.hasPublicPassword || dev.adminPassword === 'public';
+  authPromptText.textContent = isDefault
+    ? `Esta estación se encuentra reseteada de fábrica. La contraseña predeterminada de Apple es «public».`
+    : `Se requiere la contraseña de administración para acceder a la configuración de «${dev.name}».`;
+  inputAuthPassword.value = isDefault ? 'public' : '';
   authErrorMessage.style.display = 'none';
   authModalBackdrop.style.display = 'flex';
 
@@ -958,6 +1038,25 @@ function openEditModal(dev) {
         document.getElementById('tabBtnAirplay').style.display = curHasAirplay ? 'flex' : 'none';
       }
     };
+  }
+
+  // Configurar selector de conexión padre
+  const selectEditParent = document.getElementById('selectEditParent');
+  const selectEditParentGroup = selectEditParent ? selectEditParent.closest('.form-group') : null;
+  if (selectEditParentGroup) {
+    selectEditParentGroup.style.display = isInternet ? 'none' : 'block';
+  }
+  if (selectEditParent && !isInternet) {
+    selectEditParent.innerHTML = '<option value="internet">Internet (Conexión directa)</option>';
+    state.devices.forEach(d => {
+      if (d.id !== dev.id) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.ipAddress})`;
+        selectEditParent.appendChild(opt);
+      }
+    });
+    selectEditParent.value = dev.parentId || 'internet';
   }
 
   // Mostrar u ocultar pestañas según el modelo
@@ -1148,6 +1247,11 @@ async function saveDeviceEdit() {
     }
   }
 
+  const editParentSelect = document.getElementById('selectEditParent');
+  if (editParentSelect && dev.id !== 'internet') {
+    updated.parentId = editParentSelect.value;
+  }
+
   try {
     const adminPass = sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || '';
     const res = await fetch(`/api/devices/${dev.id}`, {
@@ -1167,19 +1271,27 @@ async function saveDeviceEdit() {
     }
 
     if (res.ok) {
+      const resData = await res.json().catch(() => ({}));
       const basePass = document.getElementById('inputBasePassword').value;
       if (basePass) {
         sessionUnlockedPasswords[dev.id] = basePass;
       }
       editModalBackdrop.style.display = 'none';
-      showToast('Ajustes enviados al hardware. Reiniciando servicios del AirPort...');
+      if (resData.warning) {
+        showToast(resData.warning);
+      } else {
+        showToast('Ajustes guardados y aplicados correctamente.');
+      }
 
       await loadTopologyData();
+      renderTopology();
+      updateDropdownMenu();
 
       setTimeout(async () => {
         await loadTopologyData();
-        showToast('Estación base actualizada y en línea');
-      }, 8500);
+        renderTopology();
+        updateDropdownMenu();
+      }, 4000);
     } else {
       const errData = await res.json().catch(() => ({}));
       showToast(`⚠️ ${errData.error || 'Error al aplicar los ajustes en el hardware'}`);
@@ -1193,7 +1305,7 @@ async function saveDeviceEdit() {
 // Modal: Añadir estación base
 function openAddDeviceModal() {
   const selectParent = document.getElementById('addSelectParent');
-  selectParent.innerHTML = '';
+  selectParent.innerHTML = '<option value="internet">Internet (Conexión directa)</option>';
 
   state.devices.forEach(d => {
     const opt = document.createElement('option');

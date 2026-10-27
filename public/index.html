@@ -167,6 +167,7 @@
         </div>
 
         <div class="popover-footer" id="popoverFooter">
+          <button class="mac-btn secondary" id="btnPopoverForget" style="display: none; color: #d70015;" title="Olvidar esta estación base">Olvidar</button>
           <button class="mac-btn secondary" id="btnPopoverRestart" title="Reiniciar estación base">Reiniciar</button>
           <button class="mac-btn primary" id="btnPopoverEdit">Editar</button>
         </div>
@@ -273,6 +274,12 @@
               <option value="express" data-img="/images/airport-express.png">AirPort Express 802.11n (con AirPlay)</option>
               <option value="express_legacy" data-img="/images/airport-express-legacy.png">AirPort Express 802.11g (Enchufe)</option>
               <option value="extreme_g" data-img="/images/airport-extreme-g.png">AirPort Extreme 802.11g (Plato UFO)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="selectEditParent">Conectar a la red de:</label>
+            <select id="selectEditParent" class="mac-select">
+              <option value="internet">Internet (Conexión directa)</option>
             </select>
           </div>
           <div class="form-group">
