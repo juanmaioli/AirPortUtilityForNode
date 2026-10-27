@@ -59,7 +59,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.4.3)
+├── package.json              # Configuración y dependencias (v1.4.4)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```
