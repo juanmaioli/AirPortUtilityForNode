@@ -148,30 +148,32 @@ function initEventListeners() {
   });
 
   // Popover: Editar con validación obligatoria de contraseña
-  btnPopoverEdit.addEventListener('click', () => {
-    const dev = getSelectedDevice();
-    if (!dev) return;
+  if (btnPopoverEdit) {
+    btnPopoverEdit.addEventListener('click', () => {
+      const dev = getSelectedDevice();
+      if (!dev) return;
 
-    if (dev.id === 'internet') {
-      openEditModal(dev);
-      return;
-    }
+      if (dev.id === 'internet') {
+        openEditModal(dev);
+        return;
+      }
 
-    // Verificar si ya fue desbloqueada en esta sesión o en llavero
-    const rememberedPass = localStorage.getItem('airport_keychain_' + dev.id);
-    if (rememberedPass) {
-      sessionUnlockedPasswords[dev.id] = rememberedPass;
-    } else if (dev.isFactoryDefault || dev.hasPublicPassword || dev.adminPassword === 'public') {
-      // Estación en estado de fábrica: clave predeterminada de Apple 'public'
-      sessionUnlockedPasswords[dev.id] = 'public';
-    }
+      // Verificar si ya fue desbloqueada en esta sesión o en llavero
+      const rememberedPass = localStorage.getItem('airport_keychain_' + dev.id);
+      if (rememberedPass) {
+        sessionUnlockedPasswords[dev.id] = rememberedPass;
+      } else if (dev.isFactoryDefault || dev.hasPublicPassword || dev.adminPassword === 'public') {
+        // Estación en estado de fábrica: clave predeterminada de Apple 'public'
+        sessionUnlockedPasswords[dev.id] = 'public';
+      }
 
-    if (sessionUnlockedPasswords[dev.id]) {
-      openEditModal(dev);
-    } else {
-      promptDevicePassword(dev, () => openEditModal(dev));
-    }
-  });
+      if (sessionUnlockedPasswords[dev.id]) {
+        openEditModal(dev);
+      } else {
+        promptDevicePassword(dev, () => openEditModal(dev));
+      }
+    });
+  }
 
   // Popover: Reiniciar hardware
   btnPopoverRestart.addEventListener('click', async () => {
@@ -179,7 +181,8 @@ function initEventListeners() {
     if (!dev || dev.id === 'internet') return;
 
     btnPopoverRestart.disabled = true;
-    btnPopoverRestart.textContent = 'Enviando...';
+    btnPopoverRestart.classList.add('spinning');
+    btnPopoverRestart.title = 'Reiniciando estación base...';
     showToast(`Conectando con "${dev.name}" (puerto 5009)...`);
 
     async function sendRestart(password = '') {
@@ -202,7 +205,8 @@ function initEventListeners() {
           result = await sendRestart(pass);
         } else {
           btnPopoverRestart.disabled = false;
-          btnPopoverRestart.textContent = 'Reiniciar';
+          btnPopoverRestart.classList.remove('spinning');
+          btnPopoverRestart.title = 'Reiniciar estación base';
           return;
         }
       }
@@ -216,18 +220,21 @@ function initEventListeners() {
             openDevicePopover(getSelectedDevice());
           }
           btnPopoverRestart.disabled = false;
-          btnPopoverRestart.textContent = 'Reiniciar';
+          btnPopoverRestart.classList.remove('spinning');
+          btnPopoverRestart.title = 'Reiniciar estación base';
         }, 10000);
       } else {
         showToast(`⚠️ ${result.data.error || 'No se pudo reiniciar la estación base'}`);
         btnPopoverRestart.disabled = false;
-        btnPopoverRestart.textContent = 'Reiniciar';
+        btnPopoverRestart.classList.remove('spinning');
+        btnPopoverRestart.title = 'Reiniciar estación base';
       }
     } catch (err) {
       console.error(err);
       showToast('⚠️ Error al comunicarse con el servidor de reinicio');
       btnPopoverRestart.disabled = false;
-      btnPopoverRestart.textContent = 'Reiniciar';
+      btnPopoverRestart.classList.remove('spinning');
+      btnPopoverRestart.title = 'Reiniciar estación base';
     }
   });
 
@@ -895,7 +902,7 @@ function openDevicePopover(item) {
     btnPopoverRestart.style.display = 'none';
     const btnPopoverForget = document.getElementById('btnPopoverForget');
     if (btnPopoverForget) btnPopoverForget.style.display = 'none';
-    btnPopoverEdit.style.display = 'none';
+    if (btnPopoverEdit) btnPopoverEdit.style.display = 'none';
   } else {
     // Ocultar datos WAN de Internet en estaciones base
     const rowPublicIp = document.getElementById('rowPublicIp');
@@ -911,7 +918,7 @@ function openDevicePopover(item) {
     if (rowLocation) rowLocation.style.display = 'none';
     if (rowIsp) rowIsp.style.display = 'none';
 
-    btnPopoverEdit.style.display = 'inline-flex';
+    if (btnPopoverEdit) btnPopoverEdit.style.display = 'none';
     document.getElementById('rowIpAddress').style.display = 'flex';
     document.getElementById('rowLanIp').style.display = 'flex';
     document.getElementById('rowWanIp').style.display = 'flex';
@@ -974,8 +981,14 @@ function openDevicePopover(item) {
 
     btnPopoverRestart.style.display = 'inline-flex';
     btnPopoverRestart.disabled = isOffline || item.status === 'restarting';
-    btnPopoverRestart.textContent = item.status === 'restarting' ? 'Reiniciando...' : 'Reiniciar';
-    btnPopoverEdit.textContent = 'Editar';
+    if (item.status === 'restarting') {
+      btnPopoverRestart.classList.add('spinning');
+      btnPopoverRestart.title = 'Reiniciando estación base...';
+    } else {
+      btnPopoverRestart.classList.remove('spinning');
+      btnPopoverRestart.title = 'Reiniciar estación base';
+    }
+    if (btnPopoverEdit) btnPopoverEdit.style.display = 'none';
   }
 
   // Calcular posición del popover respecto al nodo en el viewport

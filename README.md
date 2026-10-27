@@ -31,6 +31,7 @@ http://localhost:3000
 | **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
 | **Telemetría WAN de Internet** | Pop-up informativo con IP pública real, puerta de enlace, DNS primario/secundario, ubicación geográfica (ciudad/país) y nombre de ISP. |
 | **Lápiz de edición directa** | Acceso rápido a configuración mediante botón vectorial en cada estación base y ventana de edición ampliada (780px). |
+| **Barra unificada OS X y ventana panorámica** | Fusión de barra de título y herramientas en un solo bloque con ancho ampliado a 1320px y botón de reinicio en cabecera de pop-up. |
 | **Pestaña de clientes conectados** | Nueva sección en la ventana de configuración con tabla detallada de dispositivos (Host, IP, MAC y calidad de señal). |
 | **Reconocimiento inteligente de modelos e imágenes** | Catálogo canónico de Apple (`syAP` 3 a 120 y `_device-info`) con asignación dinámica de imágenes (Torre AC, Plana N, Time Capsule, Express y UFO) y selector manual. |
 | **Topología interactiva** | Visualización fiel con líneas blancas estilo Apple conectando Internet con estaciones base principales y secundarias en paralelo. |
@@ -58,7 +59,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.4.0)
+├── package.json              # Configuración y dependencias (v1.4.1)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```

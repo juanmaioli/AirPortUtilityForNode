@@ -9,28 +9,15 @@
 </head>
 <body>
   <div class="mac-window">
-    <!-- Barra de título OS X -->
-    <header class="mac-titlebar">
-      <div class="window-controls">
-        <span class="control-btn close" title="Cerrar"></span>
-        <span class="control-btn minimize" title="Minimizar"></span>
-        <span class="control-btn zoom" title="Maximizar"></span>
-      </div>
-      <div class="window-title">
-        <img src="/images/app-icon.png" alt="Icono Utilidad AirPort" class="title-icon">
-        <span>Utilidad AirPort</span>
-      </div>
-      <div class="titlebar-actions">
-        <span class="connection-status-pill" id="globalStatusPill">
-          <span class="status-dot green"></span>
-          <span id="globalStatusText">En línea</span>
-        </span>
-      </div>
-    </header>
+    <!-- Barra superior unificada estilo OS X -->
+    <header class="mac-titlebar mac-unified-header">
+      <div class="unified-left">
+        <div class="window-controls">
+          <span class="control-btn close" title="Cerrar"></span>
+          <span class="control-btn minimize" title="Minimizar"></span>
+          <span class="control-btn zoom" title="Maximizar"></span>
+        </div>
 
-    <!-- Barra de herramientas superior -->
-    <div class="mac-toolbar">
-      <div class="toolbar-left">
         <div class="dropdown">
           <button class="mac-btn dropdown-toggle" id="btnOtherStations" aria-expanded="false">
             <span class="wifi-icon">📶</span>
@@ -48,7 +35,12 @@
         </button>
       </div>
 
-      <div class="toolbar-right">
+      <div class="window-title">
+        <img src="/images/app-icon.png" alt="Icono Utilidad AirPort" class="title-icon">
+        <span>Utilidad AirPort</span>
+      </div>
+
+      <div class="unified-right">
         <button class="mac-btn" id="btnRefresh" title="Explorar red en busca de estaciones base AirPort">
           <span class="refresh-spinner" id="refreshSpinner">🔄</span>
           <span>Explorar</span>
@@ -56,8 +48,13 @@
         <button class="mac-btn secondary" id="btnResetAll" title="Restablecer configuración predeterminada">
           <span>Restablecer</span>
         </button>
+
+        <span class="connection-status-pill" id="globalStatusPill">
+          <span class="status-dot green"></span>
+          <span id="globalStatusText">En línea</span>
+        </span>
       </div>
-    </div>
+    </header>
 
     <!-- Lienzo de topología de red -->
     <main class="topology-canvas" id="topologyCanvas">
@@ -100,6 +97,9 @@
             <h3 id="popoverTitle">AirPort Extreme</h3>
             <span class="popover-subtitle" id="popoverSubtitle">AirPort Extreme 802.11ac</span>
           </div>
+          <button class="popover-restart-btn" id="btnPopoverRestart" title="Reiniciar estación base" aria-label="Reiniciar estación base">
+            <svg viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
         </div>
 
         <div class="popover-body">
@@ -185,8 +185,6 @@
 
         <div class="popover-footer" id="popoverFooter">
           <button class="mac-btn secondary" id="btnPopoverForget" style="display: none; color: #d70015;" title="Olvidar esta estación base">Olvidar</button>
-          <button class="mac-btn secondary" id="btnPopoverRestart" title="Reiniciar estación base">Reiniciar</button>
-          <button class="mac-btn primary" id="btnPopoverEdit">Editar</button>
         </div>
       </div>
     </main>
