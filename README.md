@@ -29,6 +29,9 @@ http://localhost:3000
 | **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort, con mapeo dinámico de canales 2.4 GHz y 5 GHz según `phymodes`. |
 | **Apagado real de radio Wi-Fi** | Desactivación física de la emisión de radio modificando el diccionario binario `WiFi.radios[0]` (`raWM = 0`) y recarga inmediata con `acRI`. |
 | **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
+| **Telemetría WAN de Internet** | Pop-up informativo con IP pública real, puerta de enlace, DNS primario/secundario, ubicación geográfica (ciudad/país) y nombre de ISP. |
+| **Lápiz de edición directa** | Acceso rápido a configuración mediante botón vectorial en cada estación base y ventana de edición ampliada (780px). |
+| **Pestaña de clientes conectados** | Nueva sección en la ventana de configuración con tabla detallada de dispositivos (Host, IP, MAC y calidad de señal). |
 | **Reconocimiento inteligente de modelos e imágenes** | Catálogo canónico de Apple (`syAP` 3 a 120 y `_device-info`) con asignación dinámica de imágenes (Torre AC, Plana N, Time Capsule, Express y UFO) y selector manual. |
 | **Topología interactiva** | Visualización fiel con líneas blancas estilo Apple conectando Internet con estaciones base principales y secundarias en paralelo. |
 | **Escaneo en vivo (mDNS/Bonjour)** | Descubrimiento multicast en tiempo real (`224.0.0.251:5353`) y actualización periódica automática de nombres, SSIDs y estados de red. |
@@ -55,7 +58,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.3.3)
+├── package.json              # Configuración y dependencias (v1.4.0)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```

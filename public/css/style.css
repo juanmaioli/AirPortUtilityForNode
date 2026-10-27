@@ -364,6 +364,54 @@ body {
   height: 125px;
 }
 
+/* Botón lápiz blanco para edición directa en el nodo */
+.node-edit-btn {
+  position: absolute;
+  top: 50%;
+  left: -14px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(36, 41, 50, 0.85);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #ffffff;
+  padding: 0;
+}
+
+.node-edit-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: #ffffff;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.2s ease;
+}
+
+.node-edit-btn:hover {
+  background: #007aff;
+  border-color: #ffffff;
+  transform: translateY(-50%) scale(1.18);
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.6);
+}
+
+.node-edit-btn:hover svg {
+  transform: rotate(-15deg);
+}
+
+.node-edit-btn:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
 /* Luz LED de estado */
 .node-led {
   position: absolute;
@@ -645,6 +693,56 @@ body {
   color: #777;
 }
 
+/* Estilos para la pestaña de Clientes Conectados en la ventana de edición */
+.clients-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.clients-sheet-table-wrap {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid #dcdcdc;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.clients-sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 15px;
+}
+
+.clients-sheet-table thead th {
+  background: #eaeaea;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: #444;
+  border-bottom: 1px solid #d0d0d0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.clients-sheet-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #333;
+}
+
+.clients-sheet-table tbody tr:hover {
+  background-color: #f7f9fc;
+}
+
+.clients-sheet-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .popover-footer {
   display: flex;
   justify-content: flex-end;
@@ -690,8 +788,8 @@ body {
 }
 
 .mac-sheet {
-  width: 620px;
-  max-width: 90%;
+  width: 780px;
+  max-width: 94%;
   max-height: 85vh;
   background: #f6f6f6;
   border-radius: 10px;

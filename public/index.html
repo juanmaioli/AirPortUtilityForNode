@@ -139,9 +139,40 @@
             <span class="info-val monospace" id="popoverMac">68:a8:6d:4f:21:88</span>
           </div>
 
-          <div class="info-row" id="rowWifiStatus">
+          <div class="info-row" id="rowWifiStatus" style="display: none;">
             <span class="info-label">Red Wi-Fi:</span>
             <span class="info-val" id="popoverWifiStatus">AramisAirportWiFi</span>
+          </div>
+
+          <!-- Información específica de Internet WAN -->
+          <div class="info-row" id="rowPublicIp" style="display: none;">
+            <span class="info-label">IP pública:</span>
+            <span class="info-val monospace" id="popoverPublicIp">181.27.242.226</span>
+          </div>
+
+          <div class="info-row" id="rowGateway" style="display: none;">
+            <span class="info-label">Puerta de enlace:</span>
+            <span class="info-val monospace" id="popoverGateway">172.21.5.1</span>
+          </div>
+
+          <div class="info-row" id="rowDnsPrimary" style="display: none;">
+            <span class="info-label">DNS primario:</span>
+            <span class="info-val monospace" id="popoverDnsPrimary">172.21.5.2</span>
+          </div>
+
+          <div class="info-row" id="rowDnsSecondary" style="display: none;">
+            <span class="info-label">DNS secundario:</span>
+            <span class="info-val monospace" id="popoverDnsSecondary">172.21.5.3</span>
+          </div>
+
+          <div class="info-row" id="rowLocation" style="display: none;">
+            <span class="info-label">Ubicación:</span>
+            <span class="info-val" id="popoverLocation">Neuquén, Argentina</span>
+          </div>
+
+          <div class="info-row" id="rowIsp" style="display: none;">
+            <span class="info-label">Proveedor (ISP):</span>
+            <span class="info-val" id="popoverIsp">Telefonica de Argentina</span>
           </div>
 
           <div class="info-row" id="rowDisks" style="display: none;">
@@ -149,20 +180,6 @@
             <span class="info-val" id="popoverDisks">
               <span class="disk-pill"><img src="/images/airdisk.png" class="mini-disk-icon" alt=""> <span id="popoverDiskName">untitled</span></span>
             </span>
-          </div>
-
-          <!-- Clientes conectados -->
-          <div class="popover-clients-section" id="popoverClientsSection">
-            <div class="clients-header">
-              <span class="clients-title">
-                Clientes conectados:
-                <span class="live-pulse-badge" title="Actualización continua en vivo"><span class="live-dot"></span> En vivo</span>
-              </span>
-              <span class="badge" id="popoverClientsBadge">0</span>
-            </div>
-            <ul class="clients-list" id="popoverClientsList">
-              <!-- Cargado dinámicamente -->
-            </ul>
           </div>
         </div>
 
@@ -254,6 +271,10 @@
         <button class="tab-btn" data-tab="tab-disks" id="tabBtnDisks" role="tab" aria-selected="false">
           <span class="tab-icon">💾</span>
           <span>Discos</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-clients" id="tabBtnClients" role="tab" aria-selected="false">
+          <span class="tab-icon">👥</span>
+          <span>Clientes (<span id="sheetClientsBadge">0</span>)</span>
         </button>
         <button class="tab-btn" data-tab="tab-airplay" id="tabBtnAirplay" role="tab" aria-selected="false">
           <span class="tab-icon">🔊</span>
@@ -585,7 +606,34 @@
           </div>
         </div>
 
-        <!-- 6. Pestaña AirPlay -->
+        <!-- 6. Pestaña Clientes Conectados -->
+        <div class="tab-pane" id="tab-clients">
+          <div class="clients-sheet-header">
+            <div>
+              <h3 style="font-size: 16px; margin-bottom: 4px;">Dispositivos conectados a esta estación base</h3>
+              <p style="font-size: 15px; color: var(--text-muted);">Muestra los equipos Wi-Fi y cableados activos asociados con esta unidad.</p>
+            </div>
+            <span class="live-pulse-badge"><span class="live-dot"></span> Monitoreo en vivo</span>
+          </div>
+
+          <div class="clients-sheet-table-wrap">
+            <table class="clients-sheet-table">
+              <thead>
+                <tr>
+                  <th>Dispositivo / Host</th>
+                  <th>Dirección IP</th>
+                  <th>Dirección MAC</th>
+                  <th>Señal / Conexión</th>
+                </tr>
+              </thead>
+              <tbody id="sheetClientsTableBody">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 7. Pestaña AirPlay -->
         <div class="tab-pane" id="tab-airplay">
           <div class="form-group checkbox-group">
             <label class="mac-checkbox-label">

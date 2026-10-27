@@ -6,12 +6,86 @@ const dgram = require('dgram');
 const net = require('net');
 const { execFile } = require('child_process');
 
+const http = require('http');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'devices.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Caché de geolocalización pública de Internet
+let publicGeoCache = {
+  ip: '',
+  city: '',
+  country: '',
+  isp: '',
+  lastFetched: 0
+};
+
+async function fetchPublicGeo() {
+  const now = Date.now();
+  if (publicGeoCache.ip && (now - publicGeoCache.lastFetched < 300000)) {
+    return publicGeoCache;
+  }
+  return new Promise((resolve) => {
+    const req = http.get('http://ip-api.com/json/', { timeout: 4000 }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.status === 'success') {
+            publicGeoCache = {
+              ip: parsed.query || '',
+              city: parsed.city || '',
+              country: parsed.country || '',
+              isp: parsed.isp || '',
+              lastFetched: Date.now()
+            };
+          }
+        } catch (_) {}
+        resolve(publicGeoCache);
+      });
+    });
+    req.on('error', () => resolve(publicGeoCache));
+    req.on('timeout', () => { req.destroy(); resolve(publicGeoCache); });
+  });
+}
+
+let hostNetworkCache = {
+  gateway: '172.21.5.1',
+  dnsPrimary: '172.21.5.2',
+  dnsSecondary: '172.21.5.3',
+  lastFetched: 0
+};
+
+function getHostNetworkConfig() {
+  const now = Date.now();
+  if (now - hostNetworkCache.lastFetched < 60000) {
+    return hostNetworkCache;
+  }
+  let gateway = hostNetworkCache.gateway || '172.21.5.1';
+  let dnsPrimary = hostNetworkCache.dnsPrimary || '1.1.1.1';
+  let dnsSecondary = hostNetworkCache.dnsSecondary || '8.8.8.8';
+
+  try {
+    const routeOut = execFile.name ? require('child_process').execSync('ip route show default', { encoding: 'utf-8', timeout: 1500 }) : '';
+    const gwMatch = routeOut.match(/default via ([0-9.]+)/);
+    if (gwMatch) gateway = gwMatch[1];
+  } catch (_) {}
+
+  try {
+    const nmOut = require('child_process').execSync('nmcli -t -f IP4.DNS dev show', { encoding: 'utf-8', timeout: 1500 });
+    const dnsMatches = [...nmOut.matchAll(/IP4\.DNS\[\d+\]:([0-9.]+)/g)].map(m => m[1]);
+    if (dnsMatches.length > 0) dnsPrimary = dnsMatches[0];
+    if (dnsMatches.length > 1) dnsSecondary = dnsMatches[1];
+  } catch (_) {}
+
+  hostNetworkCache = { gateway, dnsPrimary, dnsSecondary, lastFetched: now };
+  return hostNetworkCache;
+}
 
 // Estado en memoria
 let memoryData = null;
@@ -489,6 +563,19 @@ app.get('/api/devices', async (req, res) => {
       }
     }
   }
+  // Enriquecer datos de Internet con IP pública, puerta de enlace, DNS, ciudad, país e ISP
+  const geo = await fetchPublicGeo();
+  const hostNet = getHostNetworkConfig();
+  if (data.internet) {
+    data.internet.publicIp = geo.ip || '';
+    data.internet.gateway = hostNet.gateway || data.internet.routerAddress || '172.21.5.1';
+    data.internet.dnsPrimary = hostNet.dnsPrimary || (data.internet.dnsServers && data.internet.dnsServers[0]) || '1.1.1.1';
+    data.internet.dnsSecondary = hostNet.dnsSecondary || (data.internet.dnsServers && data.internet.dnsServers[1]) || '8.8.8.8';
+    data.internet.city = geo.city || '';
+    data.internet.country = geo.country || '';
+    data.internet.isp = geo.isp || '';
+  }
+
   res.json(data);
 });
 

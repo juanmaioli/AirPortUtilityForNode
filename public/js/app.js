@@ -445,29 +445,38 @@ function updateWirelessModeUI(currentSsid = null) {
   }
 }
 
-// Renderizar clientes inalámbricos sin parpadeos
+// Renderizar clientes inalámbricos sin parpadeos en la pestaña de edición
 function renderClientsList(clients = []) {
-  if (!popoverClientsBadge || !popoverClientsList) return;
-  popoverClientsBadge.textContent = clients.length;
+  const badge = document.getElementById('sheetClientsBadge');
+  const tbody = document.getElementById('sheetClientsTableBody');
+  if (badge) badge.textContent = clients.length;
+  if (!tbody) return;
 
   const currentKey = clients.map(c => `${c.ip}-${c.mac}`).join('|');
-  if (popoverClientsList.dataset.lastKey === currentKey) {
+  if (tbody.dataset.lastKey === currentKey) {
     return;
   }
-  popoverClientsList.dataset.lastKey = currentKey;
-  popoverClientsList.innerHTML = '';
+  tbody.dataset.lastKey = currentKey;
+  tbody.innerHTML = '';
 
   if (clients.length === 0) {
-    popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #888;">Sin clientes conectados</li>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; color: #888; padding: 24px;">
+          No hay clientes inalámbricos ni cableados conectados en este momento.
+        </td>
+      </tr>
+    `;
   } else {
     clients.forEach(c => {
-      const li = document.createElement('li');
-      li.className = 'client-item';
-      li.innerHTML = `
-        <span class="client-name">${escapeHtml(c.name)}</span>
-        <span class="client-stats">${escapeHtml(c.ip)} • ${escapeHtml(c.signal)}</span>
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong style="color: #111;">${escapeHtml(c.name || 'Cliente de red')}</strong></td>
+        <td><span class="monospace">${escapeHtml(c.ip || '--')}</span></td>
+        <td><span class="monospace" style="color: #666;">${escapeHtml(c.mac || '--')}</span></td>
+        <td><span style="display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: #007aff;">📶 ${escapeHtml(c.signal || 'Excelente')}</span></td>
       `;
-      popoverClientsList.appendChild(li);
+      tbody.appendChild(tr);
     });
   }
 }
@@ -549,16 +558,11 @@ async function loadTopologyData() {
     updateDropdownMenu();
     renderTopology();
 
-    // Si hay dispositivos y no hay seleccionado, seleccionar automáticamente el primero
-    if (!state.selectedDeviceId && state.devices.length > 0) {
-      state.selectedDeviceId = state.devices[0].id;
-    }
-
-    // Si había un dispositivo seleccionado, refrescar su popover
-    if (state.selectedDeviceId) {
+    // Si el usuario ya tenía el popover abierto, refrescarlo sin cerrarlo
+    if (state.selectedDeviceId && devicePopover.style.display === 'block') {
       const dev = getSelectedDevice();
       if (dev) {
-        setTimeout(() => openDevicePopover(dev), 100);
+        openDevicePopover(dev);
       } else {
         closePopover();
       }
@@ -763,9 +767,15 @@ function createNodeElement(item) {
   const hasDisks = item.disks && item.disks.length > 0;
   const diskBadgeHtml = hasDisks ? `<img src="/images/airdisk.png" class="node-usb-badge" title="Unidad USB conectada: ${escapeHtml(item.disks.map(d => d.name).join(', '))}" alt="USB">` : '';
   const warningBadgeHtml = isOffline ? `<img src="/images/warning.png" class="node-warning-badge" title="Dispositivo desconectado o fuera de alcance" alt="Alerta">` : '';
+  
+  // Botón lápiz blanco para editar únicamente en estaciones base (no en Internet)
+  const editPencilHtml = !item.isInternet
+    ? `<button type="button" class="node-edit-btn" title="Editar ${escapeHtml(item.name)}" aria-label="Editar ${escapeHtml(item.name)}"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>`
+    : '';
 
   node.innerHTML = `
     <div class="node-graphic-wrap">
+      ${editPencilHtml}
       <img src="${item.image}" alt="${escapeHtml(item.name)}" class="node-device-img ${item.isInternet ? 'internet-globe' : ''}">
       <img src="${ledSrc}" alt="LED" class="node-led ${isBlinking ? 'led-amber blinking' : ''}">
       ${diskBadgeHtml}
@@ -776,6 +786,30 @@ function createNodeElement(item) {
       <div class="node-subtitle">${escapeHtml(item.isInternet ? 'Conexión a Internet' : (isOffline ? 'No disponible' : (item.wirelessMode === 'off' ? `${item.modelName} (Wi-Fi off)` : item.modelName)))}</div>
     </div>
   `;
+
+  // Evento de clic en el botón del lápiz para abrir directamente el editor (solo estaciones base)
+  const editBtn = node.querySelector('.node-edit-btn');
+  if (editBtn && !item.isInternet) {
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.selectedDeviceId = item.id;
+      document.querySelectorAll('.topo-node').forEach(n => n.classList.remove('active'));
+      node.classList.add('active');
+
+      const rememberedPass = localStorage.getItem('airport_keychain_' + item.id);
+      if (rememberedPass) {
+        sessionUnlockedPasswords[item.id] = rememberedPass;
+      } else if (item.isFactoryDefault || item.hasPublicPassword || item.adminPassword === 'public') {
+        sessionUnlockedPasswords[item.id] = 'public';
+      }
+
+      if (sessionUnlockedPasswords[item.id]) {
+        openEditModal(item);
+      } else {
+        promptDevicePassword(item, () => openEditModal(item));
+      }
+    });
+  }
 
   node.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -817,21 +851,73 @@ function openDevicePopover(item) {
     document.getElementById('rowLanIp').style.display = 'none';
     document.getElementById('rowFirmware').style.display = 'none';
     document.getElementById('rowMac').style.display = 'none';
-    popoverClientsSection.style.display = 'none';
-    document.getElementById('rowWanIp').style.display = 'flex';
-    popoverWanIp.textContent = item.ipAddress || '172.21.5.1';
+    if (popoverClientsSection) popoverClientsSection.style.display = 'none';
+    document.getElementById('rowDisks').style.display = 'none';
+
+    // Ocultar fila de router local en Internet
+    document.getElementById('rowWanIp').style.display = 'none';
+
+    // Mostrar datos reales de conexión a Internet (IP pública, Gateway, DNS, Ciudad, País, ISP)
+    const rowPublicIp = document.getElementById('rowPublicIp');
+    const rowGateway = document.getElementById('rowGateway');
+    const rowDnsPrimary = document.getElementById('rowDnsPrimary');
+    const rowDnsSecondary = document.getElementById('rowDnsSecondary');
+    const rowLocation = document.getElementById('rowLocation');
+    const rowIsp = document.getElementById('rowIsp');
+
+    if (rowPublicIp) {
+      rowPublicIp.style.display = 'flex';
+      document.getElementById('popoverPublicIp').textContent = item.publicIp || state.internet?.publicIp || '181.27.242.226';
+    }
+    if (rowGateway) {
+      rowGateway.style.display = 'flex';
+      document.getElementById('popoverGateway').textContent = item.gateway || state.internet?.gateway || '172.21.5.1';
+    }
+    if (rowDnsPrimary) {
+      rowDnsPrimary.style.display = 'flex';
+      document.getElementById('popoverDnsPrimary').textContent = item.dnsPrimary || state.internet?.dnsPrimary || '172.21.5.2';
+    }
+    if (rowDnsSecondary) {
+      rowDnsSecondary.style.display = 'flex';
+      document.getElementById('popoverDnsSecondary').textContent = item.dnsSecondary || state.internet?.dnsSecondary || '172.21.5.3';
+    }
+    if (rowLocation) {
+      rowLocation.style.display = 'flex';
+      const city = item.city || state.internet?.city || 'Neuquén';
+      const country = item.country || state.internet?.country || 'Argentina';
+      document.getElementById('popoverLocation').textContent = `${city}, ${country}`;
+    }
+    if (rowIsp) {
+      rowIsp.style.display = 'flex';
+      document.getElementById('popoverIsp').textContent = item.isp || state.internet?.isp || 'Telefonica de Argentina';
+    }
 
     btnPopoverRestart.style.display = 'none';
     const btnPopoverForget = document.getElementById('btnPopoverForget');
     if (btnPopoverForget) btnPopoverForget.style.display = 'none';
-    btnPopoverEdit.textContent = 'Ajustes WAN';
+    btnPopoverEdit.style.display = 'none';
   } else {
+    // Ocultar datos WAN de Internet en estaciones base
+    const rowPublicIp = document.getElementById('rowPublicIp');
+    const rowGateway = document.getElementById('rowGateway');
+    const rowDnsPrimary = document.getElementById('rowDnsPrimary');
+    const rowDnsSecondary = document.getElementById('rowDnsSecondary');
+    const rowLocation = document.getElementById('rowLocation');
+    const rowIsp = document.getElementById('rowIsp');
+    if (rowPublicIp) rowPublicIp.style.display = 'none';
+    if (rowGateway) rowGateway.style.display = 'none';
+    if (rowDnsPrimary) rowDnsPrimary.style.display = 'none';
+    if (rowDnsSecondary) rowDnsSecondary.style.display = 'none';
+    if (rowLocation) rowLocation.style.display = 'none';
+    if (rowIsp) rowIsp.style.display = 'none';
+
+    btnPopoverEdit.style.display = 'inline-flex';
     document.getElementById('rowIpAddress').style.display = 'flex';
     document.getElementById('rowLanIp').style.display = 'flex';
     document.getElementById('rowWanIp').style.display = 'flex';
     document.getElementById('rowFirmware').style.display = 'flex';
     document.getElementById('rowMac').style.display = 'flex';
-    popoverClientsSection.style.display = 'block';
+    if (popoverClientsSection) popoverClientsSection.style.display = 'block';
 
     popoverIp.textContent = item.ipAddress || '10.0.1.1';
     popoverLanIp.textContent = item.lanIp || item.ipAddress || '10.0.1.1';
@@ -890,17 +976,6 @@ function openDevicePopover(item) {
     btnPopoverRestart.disabled = isOffline || item.status === 'restarting';
     btnPopoverRestart.textContent = item.status === 'restarting' ? 'Reiniciando...' : 'Reiniciar';
     btnPopoverEdit.textContent = 'Editar';
-
-    // Renderizar clientes inalámbricos con diffing para evitar parpadeos
-    if (isOffline) {
-      renderClientsList([]);
-      popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #d70015; font-weight: 500;">Dispositivo apagado o fuera de línea</li>`;
-    } else if (isWirelessOff) {
-      renderClientsList([]);
-      popoverClientsList.innerHTML = `<li class="client-item" style="justify-content: center; color: #888;">Radio inalámbrica desactivada</li>`;
-    } else {
-      renderClientsList(item.clients || []);
-    }
   }
 
   // Calcular posición del popover respecto al nodo en el viewport
@@ -1173,6 +1248,9 @@ function openEditModal(dev) {
       disksContainer.appendChild(card);
     });
   }
+
+  // Llenar Clientes Conectados
+  renderClientsList(dev.clients || []);
 
   // Llenar AirPlay
   document.getElementById('checkAirplayEnabled').checked = dev.airplay !== false;
