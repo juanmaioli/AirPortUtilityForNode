@@ -938,8 +938,30 @@ function openEditModal(dev) {
   document.getElementById('sheetDeviceName').textContent = dev.name;
   document.getElementById('sheetDeviceModel').textContent = isInternet ? 'Configuración de Internet (WAN)' : dev.modelName;
 
+  // Configurar selector de modelo
+  const selectEditModel = document.getElementById('selectEditModel');
+  const selectEditModelGroup = selectEditModel ? selectEditModel.closest('.form-group') : null;
+  if (selectEditModelGroup) {
+    selectEditModelGroup.style.display = isInternet ? 'none' : 'block';
+  }
+  if (selectEditModel && !isInternet) {
+    selectEditModel.value = dev.model || 'extreme_n';
+    selectEditModel.onchange = () => {
+      const opt = selectEditModel.options[selectEditModel.selectedIndex];
+      if (opt) {
+        document.getElementById('sheetDeviceImg').src = opt.dataset.img;
+        document.getElementById('sheetDeviceModel').textContent = opt.textContent.split('(')[0].trim();
+        const curModel = selectEditModel.value;
+        const curHasDisks = curModel === 'extreme_ac' || curModel === 'extreme_n' || curModel === 'timecapsule' || (dev.disks && dev.disks.length > 0);
+        const curHasAirplay = curModel === 'express' || curModel === 'express_legacy' || !!dev.airplay;
+        document.getElementById('tabBtnDisks').style.display = curHasDisks ? 'flex' : 'none';
+        document.getElementById('tabBtnAirplay').style.display = curHasAirplay ? 'flex' : 'none';
+      }
+    };
+  }
+
   // Mostrar u ocultar pestañas según el modelo
-  const hasDisks = dev.model === 'extreme_ac' || dev.model === 'timecapsule' || (dev.disks && dev.disks.length > 0);
+  const hasDisks = dev.model === 'extreme_ac' || dev.model === 'extreme_n' || dev.model === 'timecapsule' || (dev.disks && dev.disks.length > 0);
   const hasAirplay = dev.airplay || dev.model === 'express' || dev.model === 'express_legacy';
 
   document.getElementById('tabBtnDisks').style.display = hasDisks ? 'flex' : 'none';
@@ -1115,6 +1137,16 @@ async function saveDeviceEdit() {
     airplaySpeakerName: document.getElementById('inputSpeakerName').value.trim(),
     airplayPassword: document.getElementById('inputSpeakerPassword').value
   };
+
+  const editModelSelect = document.getElementById('selectEditModel');
+  if (editModelSelect && dev.id !== 'internet') {
+    const selectedOpt = editModelSelect.options[editModelSelect.selectedIndex];
+    if (selectedOpt) {
+      updated.model = editModelSelect.value;
+      updated.modelName = selectedOpt.textContent.split('(')[0].trim();
+      updated.image = selectedOpt.dataset.img;
+    }
+  }
 
   try {
     const adminPass = sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || '';

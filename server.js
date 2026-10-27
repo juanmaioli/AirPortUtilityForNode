@@ -79,6 +79,10 @@ function readData() {
     if (fs.existsSync(DATA_FILE)) {
       const content = fs.readFileSync(DATA_FILE, 'utf-8');
       memoryData = JSON.parse(content);
+      if (memoryData && Array.isArray(memoryData.devices)) {
+        // Sanear lista: sólo estaciones AirPort legítimas
+        memoryData.devices = memoryData.devices.filter(d => d.macAddress && d.macAddress.length > 5);
+      }
       return memoryData;
     }
   } catch (err) {
@@ -153,6 +157,78 @@ function checkPhysicalWifiActive(targetSsid = 'AramisAirportWiFi') {
   });
 }
 
+// Catálogo canónico de modelos AirPort de Apple (Product IDs / syAP oficiales de macOS AirPort Utility)
+const AIRPORT_CATALOG = {
+  '120': { model: 'extreme_ac', modelName: 'AirPort Extreme 802.11ac', image: '/images/airport-extreme-ac.png' },
+  '119': { model: 'timecapsule', modelName: 'AirPort Time Capsule 802.11ac', image: '/images/airport-extreme-ac.png' },
+  '117': { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n (5.ª gen)', image: '/images/airport-extreme-n.png' },
+  '116': { model: 'timecapsule', modelName: 'AirPort Time Capsule 802.11n (4.ª gen)', image: '/images/airport-timecapsule.png' },
+  '115': { model: 'express', modelName: 'AirPort Express 802.11n (2.ª gen)', image: '/images/airport-express.png' },
+  '114': { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n (4.ª gen)', image: '/images/airport-extreme-n.png' },
+  '113': { model: 'timecapsule', modelName: 'AirPort Time Capsule 802.11n (3.ª gen)', image: '/images/airport-timecapsule.png' },
+  '109': { model: 'timecapsule', modelName: 'AirPort Time Capsule 802.11n (2.ª gen)', image: '/images/airport-timecapsule.png' },
+  '108': { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n (3.ª gen)', image: '/images/airport-extreme-n.png' },
+  '107': { model: 'express_legacy', modelName: 'AirPort Express 802.11n (1.ª gen)', image: '/images/airport-express-legacy.png' },
+  '106': { model: 'timecapsule', modelName: 'AirPort Time Capsule 802.11n (1.ª gen)', image: '/images/airport-timecapsule.png' },
+  '105': { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n (2.ª gen)', image: '/images/airport-extreme-n.png' },
+  '104': { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n (1.ª gen)', image: '/images/airport-extreme-n.png' },
+  '102': { model: 'express_legacy', modelName: 'AirPort Express 802.11g', image: '/images/airport-express-legacy.png' },
+  '3': { model: 'extreme_g', modelName: 'AirPort Extreme 802.11g', image: '/images/airport-extreme-g.png' }
+};
+
+function resolveAirPortModel({ syAP, modelStr, firmwareVersion, name, desc }) {
+  // 1. Detección por syAP (Product ID numérico)
+  const apId = syAP ? String(syAP).trim() : null;
+  if (apId && AIRPORT_CATALOG[apId]) {
+    return { ...AIRPORT_CATALOG[apId], syAP: apId };
+  }
+
+  // 2. Detección por identificador mDNS _device-info (ej: AirPort7,120 o AirPort5,105)
+  if (modelStr) {
+    const commaParts = modelStr.split(',');
+    if (commaParts.length > 1) {
+      const subId = commaParts[1].trim();
+      if (AIRPORT_CATALOG[subId]) {
+        return { ...AIRPORT_CATALOG[subId], syAP: subId };
+      }
+    }
+    const ms = modelStr.toLowerCase();
+    if (ms.includes('timecapsule') || ms.includes('time_capsule')) {
+      return { model: 'timecapsule', modelName: 'AirPort Time Capsule', image: '/images/airport-timecapsule.png' };
+    }
+    if (ms.includes('express')) {
+      return { model: 'express', modelName: 'AirPort Express 802.11n', image: '/images/airport-express.png' };
+    }
+  }
+
+  // 3. Detección por versión de Firmware (syVs)
+  if (firmwareVersion) {
+    const fw = String(firmwareVersion).trim();
+    if (fw.startsWith('7.7')) {
+      // 7.7.x es exclusivo de los modelos 802.11ac (Torre)
+      return { model: 'extreme_ac', modelName: 'AirPort Extreme 802.11ac', image: '/images/airport-extreme-ac.png' };
+    }
+    if (fw.startsWith('6.')) {
+      return { model: 'express_legacy', modelName: 'AirPort Express 802.11g', image: '/images/airport-express-legacy.png' };
+    }
+    if (fw.startsWith('5.')) {
+      return { model: 'extreme_g', modelName: 'AirPort Extreme 802.11g', image: '/images/airport-extreme-g.png' };
+    }
+  }
+
+  // 4. Detección por nombre o descripción
+  const combinedText = `${name || ''} ${desc || ''}`.toLowerCase();
+  if (combinedText.includes('time capsule') || combinedText.includes('timecapsule')) {
+    return { model: 'timecapsule', modelName: 'AirPort Time Capsule', image: '/images/airport-timecapsule.png' };
+  }
+  if (combinedText.includes('express')) {
+    return { model: 'express', modelName: 'AirPort Express 802.11n', image: '/images/airport-express.png' };
+  }
+
+  // Fallback por defecto
+  return { model: 'extreme_n', modelName: 'AirPort Extreme 802.11n', image: '/images/airport-extreme-n.png' };
+}
+
 // Escaneo real de estaciones base AirPort y unidades USB AirDisk mediante Bonjour / mDNS
 function scanAirPort(timeoutMs = 1500) {
   return new Promise((resolve) => {
@@ -170,6 +246,17 @@ function scanAirPort(timeoutMs = 1500) {
         const text = msg.toString('latin1');
         const ip = rinfo.address;
 
+        // Filtrar: responder únicamente a dispositivos AirPort o Time Capsule de Apple
+        const isAirPortRelated = text.includes('_airport') || 
+                                 text.includes('waMA=') || 
+                                 text.includes('syAP=') || 
+                                 text.includes('_adisk') || 
+                                 /model=(AirPort|TimeCapsule)/i.test(text);
+
+        if (!isAirPortRelated && !foundMap[ip]) {
+          return;
+        }
+
         if (!foundMap[ip]) {
           foundMap[ip] = {
             id: `base-${ip.replace(/\./g, '-')}`,
@@ -178,16 +265,16 @@ function scanAirPort(timeoutMs = 1500) {
             ipAddress: ip,
             lanIp: ip,
             wanIp: ip,
-            name: 'AirPort Extreme',
-            macAddress: '00:1b:63:f3:20:f0',
+            name: 'AirPort Base Station',
+            macAddress: '',
             radioMac: '',
-            ssid: 'AirPort Wi-Fi',
-            firmwareVersion: '7.8.1',
+            ssid: '',
+            firmwareVersion: '',
             desc: 'Apple Base Station',
             model: 'extreme_n',
-            modelName: 'AirPort Extreme 802.11n',
+            modelName: 'AirPort Base Station',
             image: '/images/airport-extreme-n.png',
-            channel: '11',
+            channel: '1',
             status: 'normal',
             led: 'green',
             routerMode: 'bridge',
@@ -201,8 +288,14 @@ function scanAirPort(timeoutMs = 1500) {
 
         const dev = foundMap[ip];
 
-        // 1. Parsear datos de estación base (_airport)
-        if (text.includes('_airport') || text.includes('waMA=')) {
+        // 1. Parsear datos de _device-info (model=...)
+        const modelMatch = text.match(/model=([A-Za-z0-9,_\-]+)/);
+        if (modelMatch) {
+          dev.modelIdentifier = modelMatch[1];
+        }
+
+        // 2. Parsear datos de estación base (_airport)
+        if (text.includes('_airport') || text.includes('waMA=') || text.includes('syAP=')) {
           const extract = (key) => {
             const m = text.match(new RegExp(key + '=([^,\x00\r\n]+)'));
             return m ? m[1] : null;
@@ -228,6 +321,9 @@ function scanAirPort(timeoutMs = 1500) {
           const syVs = extract('syVs');
           if (syVs) dev.firmwareVersion = syVs;
 
+          const syAP = extract('syAP');
+          if (syAP) dev.syAP = syAP;
+
           const raCh = extract('raCh');
           if (raCh) dev.channel = raCh;
 
@@ -238,18 +334,29 @@ function scanAirPort(timeoutMs = 1500) {
           }
         }
 
-        // 2. Parsear unidades USB (_adisk - AirDisk)
+        // 3. Resolver modelo e imagen según metadatos detectados
+        const resolved = resolveAirPortModel({
+          syAP: dev.syAP,
+          modelStr: dev.modelIdentifier,
+          firmwareVersion: dev.firmwareVersion,
+          name: dev.name,
+          desc: dev.desc
+        });
+        dev.model = resolved.model;
+        dev.modelName = resolved.modelName;
+        dev.image = resolved.image;
+        if (resolved.syAP && !dev.syAP) dev.syAP = resolved.syAP;
+
+        // 4. Parsear unidades USB (_adisk - AirDisk)
         if (text.includes('_adisk') || text.includes('adVN=')) {
           dev.fileSharing = true;
 
           // Buscar todos los bloques dk0, dk1, etc.
-          // Formato: dk0=adVF=0x1013,adVN=untitled,adVU=...
           const diskRegex = /adVN=([^,\x00\r\n]+)/g;
           let match;
           while ((match = diskRegex.exec(text)) !== null) {
             const diskName = match[1].trim();
             if (diskName && !dev.disks.some(d => d.name === diskName)) {
-              // Buscar UUID si está presente
               const uuidMatch = text.match(new RegExp(`${diskName}.*?adVU=([a-f0-9\\-]+)`)) || text.match(/adVU=([a-f0-9\-]+)/);
               const uuid = uuidMatch ? uuidMatch[1] : `usb-${Date.now()}`;
 
@@ -284,7 +391,16 @@ function scanAirPort(timeoutMs = 1500) {
           0x00, 0x00, 0x0c, 0x00, 0x01
         ]);
 
-        // Consulta 2: _adisk._tcp.local (Unidades USB AirDisk)
+        // Consulta 2: _device-info._tcp.local (Modelos como AirPort7,120 / AirPort5,105)
+        const devInfoQuery = Buffer.from([
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x0c, 0x5f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x2d, 0x69, 0x6e, 0x66, 0x6f,
+          0x04, 0x5f, 0x74, 0x63, 0x70,
+          0x05, 0x6c, 0x6f, 0x63, 0x61, 0x6c,
+          0x00, 0x00, 0x0c, 0x00, 0x01
+        ]);
+
+        // Consulta 3: _adisk._tcp.local (Unidades USB AirDisk)
         const adiskQuery = Buffer.from([
           0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x06, 0x5f, 0x61, 0x64, 0x69, 0x73, 0x6b,
@@ -294,6 +410,7 @@ function scanAirPort(timeoutMs = 1500) {
         ]);
 
         socket.send(airportQuery, 5353, '224.0.0.251');
+        socket.send(devInfoQuery, 5353, '224.0.0.251');
         socket.send(adiskQuery, 5353, '224.0.0.251');
       } catch (err) {
         console.error('Error configurando socket multicast:', err);
@@ -369,6 +486,21 @@ app.get('/api/devices', async (req, res) => {
         }
       }
 
+      // Resolver y garantizar modelo e imagen correctos si faltaban o estaban desactualizados
+      if (!d.model || !d.image || (d.firmwareVersion?.startsWith('7.7') && d.model !== 'extreme_ac' && d.model !== 'timecapsule')) {
+        const resolved = resolveAirPortModel({
+          syAP: d.syAP,
+          modelStr: d.modelIdentifier,
+          firmwareVersion: d.firmwareVersion,
+          name: d.name,
+          desc: d.desc
+        });
+        d.model = resolved.model;
+        d.modelName = resolved.modelName;
+        d.image = resolved.image;
+        if (resolved.syAP && !d.syAP) d.syAP = resolved.syAP;
+      }
+
       if (d.wirelessMode === 'off') {
         d.clients = [];
         d.ssid = '';
@@ -410,6 +542,10 @@ app.post('/api/scan', async (req, res) => {
           data.devices[existingIdx] = {
             ...cur,
             ...discDev,
+            model: discDev.model || cur.model,
+            modelName: discDev.modelName || cur.modelName,
+            image: discDev.image || cur.image,
+            syAP: discDev.syAP || cur.syAP,
             wirelessMode: userMode,
             ssid: userSsid,
             disks: mergedDisks,

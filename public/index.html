@@ -265,6 +265,17 @@
         <!-- 1. Pestaña Estación Base -->
         <div class="tab-pane active" id="tab-basestation">
           <div class="form-group">
+            <label for="selectEditModel">Modelo de estación:</label>
+            <select id="selectEditModel" class="mac-select">
+              <option value="extreme_ac" data-img="/images/airport-extreme-ac.png">AirPort Extreme 802.11ac (Torre)</option>
+              <option value="extreme_n" data-img="/images/airport-extreme-n.png">AirPort Extreme 802.11n (Plana)</option>
+              <option value="timecapsule" data-img="/images/airport-timecapsule.png">AirPort Time Capsule (Plana)</option>
+              <option value="express" data-img="/images/airport-express.png">AirPort Express 802.11n (con AirPlay)</option>
+              <option value="express_legacy" data-img="/images/airport-express-legacy.png">AirPort Express 802.11g (Enchufe)</option>
+              <option value="extreme_g" data-img="/images/airport-extreme-g.png">AirPort Extreme 802.11g (Plato UFO)</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label for="inputBaseName">Nombre de la estación base:</label>
             <input type="text" id="inputBaseName" class="mac-input" placeholder="Nombre de la estación">
           </div>
@@ -595,10 +606,11 @@
           <label for="addSelectModel">Modelo de estación:</label>
           <select id="addSelectModel" class="mac-select">
             <option value="extreme_ac" data-img="/images/airport-extreme-ac.png">AirPort Extreme 802.11ac (Torre)</option>
+            <option value="extreme_n" data-img="/images/airport-extreme-n.png">AirPort Extreme 802.11n (Plana)</option>
             <option value="timecapsule" data-img="/images/airport-timecapsule.png">AirPort Time Capsule (Plana)</option>
             <option value="express" data-img="/images/airport-express.png">AirPort Express 802.11n (con AirPlay)</option>
-            <option value="extreme_n" data-img="/images/airport-extreme-n.png">AirPort Extreme 802.11n</option>
             <option value="express_legacy" data-img="/images/airport-express-legacy.png">AirPort Express 802.11g (Enchufe)</option>
+            <option value="extreme_g" data-img="/images/airport-extreme-g.png">AirPort Extreme 802.11g (Plato UFO)</option>
           </select>
         </div>
         <div class="form-group">

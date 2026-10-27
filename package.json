@@ -1,6 +1,6 @@
 {
   "name": "airportutility",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Versión web para navegador de AirPort Utility (Apple OS X) en Node.js",
   "main": "server.js",
   "scripts": {
