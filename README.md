@@ -49,6 +49,7 @@ http://localhost:3000
 AirPortUtility/
 ├── acp/                      # Biblioteca del protocolo de control ACP de Apple
 ├── acp_control.py            # Controlador CLI para verificar, aplicar cambios y leer discos
+├── activar_ssh.sh            # Script para habilitar o deshabilitar acceso SSH root (dbug=0x3000)
 ├── data/
 │   └── devices.json          # Almacén de configuración y estado persistente
 ├── public/
@@ -59,7 +60,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.4.5)
+├── package.json              # Configuración y dependencias (v1.5.0)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```
@@ -77,6 +78,12 @@ node server.js
 
 # Consultar telemetría de disco USB físico vía ACP
 python3 acp_control.py -a disks -t 172.21.5.133 -p juanmaioli506
+
+# Habilitar acceso root por SSH (puerto 22) en ambos equipos AirPort
+./activar_ssh.sh
+
+# Deshabilitar acceso SSH en ambos equipos AirPort
+./activar_ssh.sh --off
 
 # Reiniciar la estación base físicamente
 python3 reboot.py -t 172.21.5.133 -p juanmaioli506
