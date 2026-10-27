@@ -168,15 +168,27 @@ def do_apply(target, password, config):
                             radio["raNm"] = str(config["ssid"])
                         if "closedNetwork" in config:
                             radio["raSk"] = bool(config["closedNetwork"])
-                        if idx == 0 and "channel24" in config and config["channel24"]:
-                            ch24 = config["channel24"]
-                            radio["raCh"] = 0 if str(ch24) == "auto" else int(ch24)
-                        elif idx == 1 and "channel5" in config and config["channel5"]:
-                            ch5 = config["channel5"]
-                            radio["raCh"] = 0 if str(ch5) == "auto" else int(ch5)
-                        elif idx == 0 and "channel" in config and config["channel"]:
-                            ch = config["channel"]
-                            radio["raCh"] = 0 if str(ch) == "auto" else int(ch)
+                        # Detección de banda según phymodes:
+                        # Banda 5 GHz tiene phymodes 112 (11ac/a/n) o canal actual >= 36
+                        # Banda 2.4 GHz tiene phymodes 14/62 (11b/g/n) o canal actual <= 14
+                        curr_ch = radio.get("raCh", 0)
+                        phymodes = radio.get("phymodes", 0)
+                        is_5ghz_radio = (phymodes in (112, 114) or curr_ch >= 36)
+                        if len(radios) == 1:
+                            # Estación con radio única (ej. 2.4 GHz)
+                            is_5ghz_radio = False
+
+                        if is_5ghz_radio:
+                            if "channel5" in config and config["channel5"]:
+                                ch5 = config["channel5"]
+                                radio["raCh"] = 0 if str(ch5) == "auto" else int(ch5)
+                        else:
+                            if "channel24" in config and config["channel24"]:
+                                ch24 = config["channel24"]
+                                radio["raCh"] = 0 if str(ch24) == "auto" else int(ch24)
+                            elif "channel" in config and config["channel"]:
+                                ch = config["channel"]
+                                radio["raCh"] = 0 if str(ch) == "auto" else int(ch)
             composed_wifi = CFLBinaryPListComposer.compose(wifi_dict)
             props_to_set["WiFi"] = ACPProperty("WiFi", composed_wifi)
         else:
