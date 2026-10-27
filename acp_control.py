@@ -3,6 +3,8 @@ import sys
 import json
 import argparse
 import os
+import time
+import hashlib
 from collections import OrderedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,25 +45,30 @@ def _run_single_op(target, password, fn):
     """Ejecuta una operación ACP en una conexión limpia usando autenticación Legacy
     (estándar nativo de AirPort Utility para getprop/setprop) con respaldo SRP."""
     last_err = None
-    for use_srp in (False, True):
-        client = None
-        try:
-            client = _connect_client(target, password, use_srp=use_srp)
-            result = fn(client)
+    for attempt in range(2):
+        for use_srp in (False, True):
+            client = None
             try:
-                client.close()
-            except Exception:
-                pass
-            return result
-        except Exception as e:
-            last_err = e
-            if client:
+                client = _connect_client(target, password, use_srp=use_srp)
+                result = fn(client)
                 try:
                     client.close()
                 except Exception:
                     pass
-            if isinstance(e, (ConnectionRefusedError, TimeoutError, OSError)) and not isinstance(e, ACPError):
-                break
+                return result
+            except Exception as e:
+                last_err = e
+                if client:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+                if isinstance(e, (ConnectionRefusedError, TimeoutError, OSError)) and not isinstance(e, ACPError):
+                    break
+        if attempt == 0 and not _is_auth_error(str(last_err)):
+            time.sleep(1.5)
+        else:
+            break
     raise last_err
 
 
@@ -157,38 +164,64 @@ def do_apply(target, password, config):
         if isinstance(wifi_dict, (dict, OrderedDict)):
             radios = wifi_dict.get("radios")
             if isinstance(radios, list):
+                enable_5g = bool(config.get("enable5GHz", False))
+                ssid_5g = str(config.get("ssid5GHz", "")).strip()
                 for idx, radio in enumerate(radios):
                     if not isinstance(radio, (dict, OrderedDict)):
                         continue
                     radio["raWM"] = rawm_val
+                    # Detección de banda según phymodes:
+                    # Banda 5 GHz tiene phymodes 112 (11ac/a/n) o canal actual >= 36
+                    # Banda 2.4 GHz tiene phymodes 14/62 (11b/g/n) o canal actual <= 14
+                    curr_ch = radio.get("raCh", 0)
+                    phymodes = radio.get("phymodes", 0)
+                    is_5ghz_radio = (phymodes in (112, 114) or curr_ch >= 36)
+                    if len(radios) == 1:
+                        # Estación con radio única (ej. 2.4 GHz)
+                        is_5ghz_radio = False
+
                     if mode == "off":
                         radio["raEA"] = False
                     else:
-                        if "ssid" in config and config["ssid"]:
+                        if is_5ghz_radio and enable_5g and ssid_5g:
+                            radio["raNm"] = ssid_5g
+                        elif "ssid" in config and config["ssid"]:
                             radio["raNm"] = str(config["ssid"])
+
                         if "closedNetwork" in config:
                             radio["raSk"] = bool(config["closedNetwork"])
-                        # Detección de banda según phymodes:
-                        # Banda 5 GHz tiene phymodes 112 (11ac/a/n) o canal actual >= 36
-                        # Banda 2.4 GHz tiene phymodes 14/62 (11b/g/n) o canal actual <= 14
-                        curr_ch = radio.get("raCh", 0)
-                        phymodes = radio.get("phymodes", 0)
-                        is_5ghz_radio = (phymodes in (112, 114) or curr_ch >= 36)
-                        if len(radios) == 1:
-                            # Estación con radio única (ej. 2.4 GHz)
-                            is_5ghz_radio = False
+
+                        if "wirelessPassword" in config and config["wirelessPassword"]:
+                            wp = str(config["wirelessPassword"])
+                            if isinstance(radio.get("raCr"), (bytes, bytearray)):
+                                radio["raCr"] = wp.encode("utf-8")
+                            else:
+                                radio["raCr"] = wp
+
+                        # Recalcular clave PMK IEEE 802.11i (PBKDF2-SHA1 de raCr + raNm)
+                        raw_cr = radio.get("raCr", b"")
+                        cr_bytes = bytes(raw_cr) if isinstance(raw_cr, (bytes, bytearray)) else str(raw_cr).encode("utf-8")
+                        nm_bytes = str(radio.get("raNm", "")).encode("utf-8")
+                        if cr_bytes and nm_bytes and isinstance(radio.get("raWE"), (bytes, bytearray)):
+                            radio["raWE"] = hashlib.pbkdf2_hmac("sha1", cr_bytes, nm_bytes, 4096, 32)
 
                         if is_5ghz_radio:
                             if "channel5" in config and config["channel5"]:
                                 ch5 = config["channel5"]
-                                radio["raCh"] = 0 if str(ch5) == "auto" else int(ch5)
+                                is_auto5 = (str(ch5) == "auto")
+                                radio["raCA"] = is_auto5
+                                radio["raCh"] = 0 if is_auto5 else int(ch5)
                         else:
                             if "channel24" in config and config["channel24"]:
                                 ch24 = config["channel24"]
-                                radio["raCh"] = 0 if str(ch24) == "auto" else int(ch24)
+                                is_auto24 = (str(ch24) == "auto")
+                                radio["raCA"] = is_auto24
+                                radio["raCh"] = 0 if is_auto24 else int(ch24)
                             elif "channel" in config and config["channel"]:
                                 ch = config["channel"]
-                                radio["raCh"] = 0 if str(ch) == "auto" else int(ch)
+                                is_auto = (str(ch) == "auto")
+                                radio["raCA"] = is_auto
+                                radio["raCh"] = 0 if is_auto else int(ch)
             composed_wifi = CFLBinaryPListComposer.compose(wifi_dict)
             props_to_set["WiFi"] = ACPProperty("WiFi", composed_wifi)
         else:
@@ -196,14 +229,20 @@ def do_apply(target, password, config):
             if mode != "off" and "ssid" in config and config["ssid"]:
                 props_to_set["raNm"] = ACPProperty("raNm", str(config["ssid"]))
 
+        if "basePassword" in config and config["basePassword"] and str(config["basePassword"]) != password:
+            props_to_set["syPW"] = ACPProperty("syPW", str(config["basePassword"]))
+
+        active_password = password
         # Paso 3: Escribir cada propiedad en su propia conexión limpia
         for k, prop_obj in props_to_set.items():
             def _write_prop(client, key=k, pobj=prop_obj):
                 client.set_properties({key: pobj})
                 return True
 
-            _run_single_op(target, password, _write_prop)
+            _run_single_op(target, active_password, _write_prop)
             updated_keys.append(k)
+            if k == "syPW":
+                active_password = str(config["basePassword"])
 
         # Paso 4: Recargar servicios en el router usando acRI: 0 en su propia conexión individual
         # (Probado en hardware real: apaga/actualiza la radio en 2 segundos manteniendo abierto el puerto 5009)
@@ -212,7 +251,7 @@ def do_apply(target, password, config):
                 client.set_properties({"acRI": ACPProperty("acRI", 0)})
                 return True
 
-            _run_single_op(target, password, _reload_services)
+            _run_single_op(target, active_password, _reload_services)
             updated_keys.append("acRI")
         except Exception:
             pass
@@ -244,13 +283,18 @@ def _format_mib(mib_val):
 
 def do_disks(target, password):
     try:
-        def _read_mast(client):
-            props = client.get_properties(["MaSt"])
-            if props and props[0].value:
-                return CFLBinaryPListParser.parse(props[0].value)
-            return []
+        def _read_telemetry(client):
+            props = client.get_properties(["MaSt", "WiFi", "syNm"])
+            res = {}
+            for p in (props or []):
+                res[p.name] = p.value
+            return res
 
-        mast_list = _run_single_op(target, password, _read_mast)
+        raw = _run_single_op(target, password, _read_telemetry)
+        mast_list = CFLBinaryPListParser.parse(raw["MaSt"]) if raw.get("MaSt") else []
+        wifi_dict = CFLBinaryPListParser.parse(raw["WiFi"]) if raw.get("WiFi") else None
+        sy_nm = str(raw["syNm"]) if raw.get("syNm") else None
+
         disks_out = []
         if isinstance(mast_list, list):
             for hw in mast_list:
@@ -296,9 +340,62 @@ def do_disks(target, password):
                             "sizeFreeMiB": free_mib,
                             "percent": pct
                         })
-        return {"success": True, "disks": disks_out}
+
+        wifi_out = None
+        if isinstance(wifi_dict, (dict, OrderedDict)):
+            radios = wifi_dict.get("radios", [])
+            if isinstance(radios, list) and len(radios) > 0:
+                r24 = None
+                r5 = None
+                for r in radios:
+                    if not isinstance(r, (dict, OrderedDict)):
+                        continue
+                    curr_ch = r.get("raCh", 0)
+                    phymodes = r.get("phymodes", 0)
+                    is_5g = (phymodes in (112, 114) or curr_ch >= 36) and len(radios) > 1
+                    if is_5g:
+                        r5 = r
+                    else:
+                        r24 = r
+                if r24 is None:
+                    r24 = radios[0]
+
+                rawm = r24.get("raWM", 5)
+                if rawm == 0:
+                    wmode = "off"
+                elif rawm == 2:
+                    wmode = "join"
+                elif rawm == 4:
+                    wmode = "extend"
+                else:
+                    wmode = "create"
+
+                ssid24 = str(r24.get("raNm", ""))
+                ssid5 = str(r5.get("raNm", "")) if r5 else ""
+                enable5g = bool(r5 and ssid5 and ssid5 != ssid24)
+                ch24_num = int(r24.get("raCh", 0) or 0)
+                ch5_num = int(r5.get("raCh", 0) or 0) if r5 else 0
+                raw_cr = r24.get("raCr", "")
+                if isinstance(raw_cr, (bytes, bytearray)):
+                    wpass = raw_cr.decode("utf-8", errors="ignore")
+                else:
+                    wpass = str(raw_cr)
+
+                wifi_out = {
+                    "name": sy_nm,
+                    "wirelessMode": wmode,
+                    "ssid": ssid24,
+                    "ssid5GHz": ssid5 if ssid5 else (f"{ssid24} 5GHz" if ssid24 else ""),
+                    "enable5GHz": enable5g,
+                    "channel24": "auto" if ch24_num == 0 else str(ch24_num),
+                    "channel5": "auto" if ch5_num == 0 else str(ch5_num),
+                    "hiddenNetwork": bool(r24.get("raSk", False)),
+                    "wirelessPassword": wpass
+                }
+
+        return {"success": True, "disks": disks_out, "wifi": wifi_out, "name": sy_nm}
     except Exception as e:
-        return {"success": False, "error": str(e), "disks": []}
+        return {"success": False, "error": str(e), "disks": [], "wifi": None}
 
 
 def main():

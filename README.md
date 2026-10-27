@@ -26,7 +26,7 @@ http://localhost:3000
 
 | Módulo | Descripción |
 | :--- | :--- |
-| **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort, con mapeo dinámico de canales 2.4 GHz y 5 GHz según `phymodes`. |
+| **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort, con mapeo dinámico de canales 2.4 GHz y 5 GHz (incluyendo DFS), control de selección automática (`raCA`), SSID 5 GHz independiente y cálculo de clave WPA2 PMK (`PBKDF2-SHA1`). |
 | **Apagado real de radio Wi-Fi** | Desactivación física de la emisión de radio modificando el diccionario binario `WiFi.radios[0]` (`raWM = 0`) y recarga inmediata con `acRI`. |
 | **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
 | **Telemetría WAN de Internet** | Pop-up informativo con IP pública real, puerta de enlace, DNS primario/secundario, ubicación geográfica (ciudad/país) y nombre de ISP. |
@@ -59,7 +59,7 @@ AirPortUtility/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.4.2)
+├── package.json              # Configuración y dependencias (v1.4.3)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```

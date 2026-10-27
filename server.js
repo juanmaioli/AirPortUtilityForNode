@@ -473,30 +473,36 @@ function scanAirPort(timeoutMs = 1500) {
   });
 }
 
-// Caché de información de discos USB obtenida vía ACP (MaSt) para no saturar el puerto 5009
+// Caché de telemetría de hardware obtenida vía ACP (MaSt + WiFi + syNm) para no saturar el puerto 5009
 const diskCache = new Map();
 
-function fetchHardwareDisks(ip, password, force = false) {
+function fetchHardwareTelemetry(ip, password, force = false) {
   if (!ip || !password) return Promise.resolve(null);
   const now = Date.now();
   const cached = diskCache.get(ip);
   if (!force && cached && (now - cached.ts) < 25000) {
-    return Promise.resolve(cached.disks);
+    return Promise.resolve(cached);
   }
   const acpScript = path.join(__dirname, 'acp_control.py');
   return new Promise((resolve) => {
     execFile('python3', [acpScript, '-a', 'disks', '-t', ip, '-p', password], { timeout: 4500 }, (err, stdout) => {
       if (err || !stdout) {
-        return resolve(cached ? cached.disks : null);
+        return resolve(cached || null);
       }
       try {
         const res = JSON.parse(stdout);
-        if (res.success && Array.isArray(res.disks)) {
-          diskCache.set(ip, { ts: now, disks: res.disks });
-          return resolve(res.disks);
+        if (res.success) {
+          const entry = {
+            ts: now,
+            disks: Array.isArray(res.disks) ? res.disks : [],
+            wifi: res.wifi || null,
+            name: res.name || null
+          };
+          diskCache.set(ip, entry);
+          return resolve(entry);
         }
       } catch (_) {}
-      resolve(cached ? cached.disks : null);
+      resolve(cached || null);
     });
   });
 }
@@ -505,6 +511,7 @@ function fetchHardwareDisks(ip, password, force = false) {
 app.get('/api/devices', async (req, res) => {
   const data = readData();
   const wifiStatus = await checkPhysicalWifiActive();
+  let telemetryUpdated = false;
 
   for (const d of data.devices) {
     const targetIp = d.ipAddress || d.lanIp || d.wanIp;
@@ -525,13 +532,36 @@ app.get('/api/devices', async (req, res) => {
         d.physicalBssid = wifiStatus.bssid;
       }
 
-      // Actualizar métricas reales de capacidad del disco USB vía ACP (MaSt)
+      // Actualizar métricas reales de capacidad del disco USB y radio Wi-Fi vía ACP
       const adminPass = d.adminPassword || d.basePassword || '';
       if (adminPass) {
-        const hwDisks = await fetchHardwareDisks(targetIp, adminPass);
-        if (hwDisks && hwDisks.length > 0) {
-          d.disks = hwDisks;
-          d.fileSharing = true;
+        const hw = await fetchHardwareTelemetry(targetIp, adminPass);
+        if (hw) {
+          if (Array.isArray(hw.disks) && hw.disks.length > 0 && !d._diskEjectedManually) {
+            d.disks = hw.disks;
+            d.fileSharing = true;
+          }
+          if (hw.wifi) {
+            if (hw.wifi.name) d.name = hw.wifi.name;
+            d.wirelessMode = hw.wifi.wirelessMode || d.wirelessMode || 'create';
+            if (d.wirelessMode !== 'off') {
+              if (hw.wifi.ssid) d.ssid = hw.wifi.ssid;
+              if (hw.wifi.ssid5GHz) d.ssid5GHz = hw.wifi.ssid5GHz;
+              d.enable5GHz = !!hw.wifi.enable5GHz;
+            }
+            if (hw.wifi.channel24) {
+              d.channel24 = hw.wifi.channel24;
+              d.channel = hw.wifi.channel24;
+            }
+            if (hw.wifi.channel5) {
+              d.channel5 = hw.wifi.channel5;
+            }
+            d.hiddenNetwork = !!hw.wifi.hiddenNetwork;
+            if (hw.wifi.wirelessPassword) {
+              d.wirelessPassword = hw.wifi.wirelessPassword;
+            }
+            telemetryUpdated = true;
+          }
         }
       }
 
@@ -576,6 +606,10 @@ app.get('/api/devices', async (req, res) => {
     data.internet.isp = geo.isp || '';
   }
 
+  if (telemetryUpdated) {
+    writeData(data);
+  }
+
   res.json(data);
 });
 
@@ -592,26 +626,34 @@ async function syncDiscoveredToData(discovered) {
 
     if (existingIdx !== -1) {
       const cur = data.devices[existingIdx];
+      delete cur._diskEjectedManually;
       const adminPass = cur.adminPassword || cur.basePassword || '';
-      const hwDisks = await fetchHardwareDisks(discDev.ipAddress, adminPass);
+      const hw = await fetchHardwareTelemetry(discDev.ipAddress, adminPass, true);
+      const hwDisks = hw ? hw.disks : null;
+      const hwWifi = hw ? hw.wifi : null;
       const mergedDisks = (hwDisks && hwDisks.length > 0)
         ? hwDisks
         : (cur.disks && cur.disks.length > 0 ? cur.disks : discDev.disks);
 
-      const userMode = cur.wirelessMode || 'create';
-      const detectedSsid = discDev.ssid || cur.ssid;
+      const userMode = (hwWifi && hwWifi.wirelessMode) || cur.wirelessMode || 'create';
+      const detectedSsid = (hwWifi && hwWifi.ssid) || discDev.ssid || cur.ssid;
       const userSsid = userMode === 'off' ? '' : detectedSsid;
-      const updatedName = (discDev.name && discDev.name !== 'AirPort Base Station') ? discDev.name : (cur.name || discDev.name);
+      const updatedName = (hwWifi && hwWifi.name)
+        || ((discDev.name && discDev.name !== 'AirPort Base Station') ? discDev.name : (cur.name || discDev.name));
 
       data.devices[existingIdx] = {
         ...cur,
         ...discDev,
         name: updatedName,
         ssid: userSsid,
+        ssid5GHz: (hwWifi && hwWifi.ssid5GHz) || cur.ssid5GHz || `${userSsid || 'Red'} 5GHz`,
+        enable5GHz: hwWifi ? !!hwWifi.enable5GHz : !!cur.enable5GHz,
         firmwareVersion: discDev.firmwareVersion || cur.firmwareVersion,
-        channel: cur.channel24 || discDev.channel || cur.channel,
-        channel24: cur.channel24 || discDev.channel || cur.channel,
-        channel5: cur.channel5 || 'auto',
+        channel: (hwWifi && hwWifi.channel24) || cur.channel24 || discDev.channel || cur.channel,
+        channel24: (hwWifi && hwWifi.channel24) || cur.channel24 || discDev.channel || cur.channel,
+        channel5: (hwWifi && hwWifi.channel5) || cur.channel5 || 'auto',
+        hiddenNetwork: hwWifi ? !!hwWifi.hiddenNetwork : !!cur.hiddenNetwork,
+        wirelessPassword: (hwWifi && hwWifi.wirelessPassword) || cur.wirelessPassword || '',
         model: discDev.model || cur.model,
         modelName: discDev.modelName || cur.modelName,
         image: discDev.image || cur.image,
@@ -689,7 +731,8 @@ app.post('/api/devices/:id/eject-disk', (req, res) => {
   if (dev.disks) {
     dev.disks = dev.disks.filter(d => d.name !== diskName);
   }
-  memoryData = data;
+  dev._diskEjectedManually = true;
+  writeData(data);
   res.json({ success: true, message: `Unidad "${diskName}" expulsada con seguridad`, device: dev });
 });
 
@@ -814,8 +857,12 @@ app.put('/api/devices/:id', (req, res) => {
 
   const configPayload = JSON.stringify({
     name: req.body.name,
+    basePassword: req.body.basePassword,
     wirelessMode: req.body.wirelessMode,
     ssid: req.body.ssid,
+    enable5GHz: !!req.body.enable5GHz,
+    ssid5GHz: req.body.ssid5GHz || '',
+    wirelessPassword: req.body.wirelessPassword || '',
     channel: req.body.channel24,
     channel24: req.body.channel24,
     channel5: req.body.channel5,
@@ -830,6 +877,9 @@ app.put('/api/devices/:id', (req, res) => {
     } catch (_) {
       acpResult = { success: !acpErr };
     }
+
+    // Invalidar caché de telemetría para que la siguiente lectura obtenga el estado fresco del hardware
+    diskCache.delete(targetIp);
 
     // Si el hardware físico denegó el acceso por contraseña
     if (!acpResult.success && acpResult.requiresPassword) {
@@ -850,14 +900,23 @@ app.put('/api/devices/:id', (req, res) => {
       dev.lastKnownSsid = req.body.ssid;
     }
 
-    if (providedPassword) {
-      dev.adminPassword = providedPassword;
-      dev.basePassword = providedPassword;
+    if (req.body.channel24) {
+      req.body.channel = req.body.channel24;
+    }
+
+    const effectiveAdminPass = (acpResult.success && req.body.basePassword)
+      ? req.body.basePassword
+      : providedPassword;
+    if (effectiveAdminPass) {
+      dev.adminPassword = effectiveAdminPass;
+      dev.basePassword = effectiveAdminPass;
     }
 
     data.devices[index] = { 
       ...data.devices[index], 
       ...req.body,
+      adminPassword: dev.adminPassword,
+      basePassword: dev.basePassword,
       status: acpResult.success ? 'restarting' : 'normal',
       led: acpResult.success ? 'amber-blinking' : 'green'
     };

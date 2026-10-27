@@ -947,7 +947,12 @@ function openDevicePopover(item) {
       } else if (isWirelessOff) {
         popoverWifiStatus.innerHTML = '<span style="color: #d70015; font-weight: 600;">🚫 Desactivada</span>';
       } else {
-        popoverWifiStatus.textContent = `${item.ssid || 'Wi-Fi'} (${item.security || 'WPA2'})`;
+        const ch24Label = item.channel24 || item.channel || 'auto';
+        const ch5Label = item.channel5 && item.channel5 !== 'auto' ? ` / ${item.channel5}` : '';
+        const ssidLabel = (item.enable5GHz && item.ssid5GHz && item.ssid5GHz !== item.ssid)
+          ? `${item.ssid} / ${item.ssid5GHz}`
+          : (item.ssid || 'Wi-Fi');
+        popoverWifiStatus.textContent = `${ssidLabel} (Canal ${ch24Label}${ch5Label})`;
       }
     }
 
@@ -1155,13 +1160,26 @@ function openEditModal(dev) {
   document.getElementById('tabBtnAirplay').style.display = hasAirplay ? 'flex' : 'none';
 
   // Llenar campos de formulario
+  const currentBasePass = dev.basePassword || dev.adminPassword || sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || '';
   document.getElementById('inputBaseName').value = dev.name || '';
-  document.getElementById('inputBasePassword').value = dev.wirelessPassword || '';
-  document.getElementById('inputBasePasswordConfirm').value = dev.wirelessPassword || '';
+  document.getElementById('inputBasePassword').value = currentBasePass;
+  document.getElementById('inputBasePasswordConfirm').value = currentBasePass;
+  const checkRememberKeychain = document.getElementById('checkRememberKeychain');
+  if (checkRememberKeychain) {
+    checkRememberKeychain.checked = !!localStorage.getItem('airport_keychain_' + dev.id) || true;
+  }
   document.getElementById('inputBackToMyMac').value = dev.backToMyMac || '';
 
   document.getElementById('selectConnectVia').value = dev.connectionType || 'DHCP';
   document.getElementById('inputWanIp').value = dev.wanIp || dev.ipAddress || '172.21.5.133';
+  const inputSubnetMask = document.getElementById('inputSubnetMask');
+  if (inputSubnetMask) inputSubnetMask.value = dev.subnetMask || '255.255.255.0';
+  const inputRouterIp = document.getElementById('inputRouterIp');
+  if (inputRouterIp) inputRouterIp.value = dev.routerIp || (state.internet && state.internet.gateway) || '172.21.5.1';
+  const inputDnsServers = document.getElementById('inputDnsServers');
+  if (inputDnsServers) inputDnsServers.value = dev.dnsServers || '172.21.5.1, 1.1.1.1';
+  const inputDomainName = document.getElementById('inputDomainName');
+  if (inputDomainName) inputDomainName.value = dev.domainName || 'local';
 
   // Configuración inalámbrica
   const selectMode = document.getElementById('selectWirelessMode');
@@ -1177,8 +1195,8 @@ function openEditModal(dev) {
   check5G.checked = !!dev.enable5GHz;
   box5G.style.display = dev.enable5GHz ? 'block' : 'none';
   document.getElementById('input5GHzSsid').value = dev.ssid5GHz || (dev.ssid ? `${dev.ssid} 5GHz` : '');
-  document.getElementById('selectChannel24').value = dev.channel24 || dev.channel || 'auto';
-  document.getElementById('selectChannel5').value = dev.channel5 || 'auto';
+  document.getElementById('selectChannel24').value = String(dev.channel24 || dev.channel || 'auto');
+  document.getElementById('selectChannel5').value = String(dev.channel5 || 'auto');
   document.getElementById('checkHiddenNetwork').checked = !!dev.hiddenNetwork;
 
   // Red de invitados
@@ -1199,6 +1217,14 @@ function openEditModal(dev) {
 
   document.getElementById('selectRouterMode').value = dev.routerMode || 'nat_dhcp';
   document.getElementById('inputDhcpRange').value = dev.dhcpRange || '10.0.1.2 a 10.0.1.200';
+
+  // Opciones de uso compartido de discos
+  const checkFileSharing = document.getElementById('checkFileSharing');
+  if (checkFileSharing) checkFileSharing.checked = dev.fileSharingEnabled !== false;
+  const selectDiskSecurity = document.getElementById('selectDiskSecurity');
+  if (selectDiskSecurity) selectDiskSecurity.value = dev.diskSecurity || 'base';
+  const checkWanDisks = document.getElementById('checkWanDisks');
+  if (checkWanDisks) checkWanDisks.checked = !!dev.wanDisks;
 
   // Llenar Discos
   const disksContainer = document.getElementById('disksListContainer');
@@ -1281,8 +1307,23 @@ async function saveDeviceEdit() {
   if (!state.activeEditingDevice) return;
   const dev = state.activeEditingDevice;
 
+  const basePassVal = document.getElementById('inputBasePassword').value;
+  const basePassConfirmVal = document.getElementById('inputBasePasswordConfirm').value;
+  if (basePassVal !== basePassConfirmVal) {
+    showToast('⚠️ Las contraseñas de la estación base no coinciden');
+    return;
+  }
+
   const wirelessModeVal = document.getElementById('selectWirelessMode').value;
   const isWirelessOff = wirelessModeVal === 'off';
+  const securityVal = document.getElementById('selectSecurity').value;
+  const wifiPassVal = document.getElementById('inputWifiPassword').value;
+  const wifiPassConfirmVal = document.getElementById('inputWifiPasswordConfirm').value;
+
+  if (!isWirelessOff && securityVal !== 'Ninguna' && wifiPassVal !== wifiPassConfirmVal) {
+    showToast('⚠️ Las contraseñas de la red inalámbrica no coinciden');
+    return;
+  }
 
   let selectedSsid = '';
   if (isWirelessOff) {
@@ -1302,16 +1343,28 @@ async function saveDeviceEdit() {
   }
 
   const checkAllowEthernet = document.getElementById('checkAllowEthernetClients');
+  const inputSubnetMask = document.getElementById('inputSubnetMask');
+  const inputRouterIp = document.getElementById('inputRouterIp');
+  const inputDnsServers = document.getElementById('inputDnsServers');
+  const inputDomainName = document.getElementById('inputDomainName');
+  const checkFileSharing = document.getElementById('checkFileSharing');
+  const selectDiskSecurity = document.getElementById('selectDiskSecurity');
+  const checkWanDisks = document.getElementById('checkWanDisks');
 
   const updated = {
     name: document.getElementById('inputBaseName').value.trim() || dev.name,
-    wirelessPassword: document.getElementById('inputBasePassword').value,
+    basePassword: basePassVal,
+    wirelessPassword: wifiPassVal,
     backToMyMac: document.getElementById('inputBackToMyMac').value.trim(),
     connectionType: document.getElementById('selectConnectVia').value,
     wanIp: document.getElementById('inputWanIp').value.trim(),
+    subnetMask: inputSubnetMask ? inputSubnetMask.value.trim() : '255.255.255.0',
+    routerIp: inputRouterIp ? inputRouterIp.value.trim() : '172.21.5.1',
+    dnsServers: inputDnsServers ? inputDnsServers.value.trim() : '172.21.5.1, 1.1.1.1',
+    domainName: inputDomainName ? inputDomainName.value.trim() : 'local',
     wirelessMode: wirelessModeVal,
     ssid: selectedSsid,
-    security: document.getElementById('selectSecurity').value,
+    security: securityVal,
     allowEthernetClients: checkAllowEthernet ? checkAllowEthernet.checked : true,
     enable5GHz: document.getElementById('check5GHz').checked,
     ssid5GHz: document.getElementById('input5GHzSsid').value.trim(),
@@ -1323,6 +1376,9 @@ async function saveDeviceEdit() {
     guestPassword: document.getElementById('inputGuestPassword').value,
     routerMode: document.getElementById('selectRouterMode').value,
     dhcpRange: document.getElementById('inputDhcpRange').value.trim(),
+    fileSharingEnabled: checkFileSharing ? checkFileSharing.checked : true,
+    diskSecurity: selectDiskSecurity ? selectDiskSecurity.value : 'base',
+    wanDisks: checkWanDisks ? checkWanDisks.checked : false,
     airplay: document.getElementById('checkAirplayEnabled').checked,
     airplaySpeakerName: document.getElementById('inputSpeakerName').value.trim(),
     airplayPassword: document.getElementById('inputSpeakerPassword').value
@@ -1344,7 +1400,7 @@ async function saveDeviceEdit() {
   }
 
   try {
-    const adminPass = sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || '';
+    const adminPass = sessionUnlockedPasswords[dev.id] || localStorage.getItem('airport_keychain_' + dev.id) || dev.adminPassword || dev.basePassword || '';
     const res = await fetch(`/api/devices/${dev.id}`, {
       method: 'PUT',
       headers: {
@@ -1363,9 +1419,14 @@ async function saveDeviceEdit() {
 
     if (res.ok) {
       const resData = await res.json().catch(() => ({}));
-      const basePass = document.getElementById('inputBasePassword').value;
-      if (basePass) {
-        sessionUnlockedPasswords[dev.id] = basePass;
+      const checkRememberKeychain = document.getElementById('checkRememberKeychain');
+      if (basePassVal) {
+        sessionUnlockedPasswords[dev.id] = basePassVal;
+        if (!checkRememberKeychain || checkRememberKeychain.checked) {
+          localStorage.setItem('airport_keychain_' + dev.id, basePassVal);
+        } else {
+          localStorage.removeItem('airport_keychain_' + dev.id);
+        }
       }
       editModalBackdrop.style.display = 'none';
       if (resData.warning) {
