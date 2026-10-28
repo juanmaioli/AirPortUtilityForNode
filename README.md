@@ -2,7 +2,7 @@
 
 [Documentación oficial de Apple AirPort](https://support.apple.com/es-es/HT208084)
 
-Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility de Apple OS X) desarrollada en **Node.js** y **Python** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, control y gestión de hardware real mediante el protocolo nativo **ACP** (puerto `5009`), telemetría exacta de almacenamiento USB (**AirDisk**), apagado físico de radio Wi-Fi y visualización diagnóstica oficial de Apple.
+Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility de Apple OS X) desarrollada en **Node.js** y **Python** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, control y gestión de hardware real mediante el protocolo nativo **ACP** (puerto `5009`), telemetría exacta de almacenamiento USB (**AirDisk**), apagado físico de radio Wi-Fi, utilidades avanzadas en NetBSD (`neofetch`, `arch`, automontaje HFS+) y visualización diagnóstica oficial de Apple.
 
 ---
 
@@ -27,6 +27,9 @@ http://localhost:3000
 | Módulo | Descripción |
 | :--- | :--- |
 | **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort, con mapeo dinámico de canales 2.4 GHz y 5 GHz (incluyendo DFS), control de selección automática (`raCA`), SSID 5 GHz independiente y cálculo de clave WPA2 PMK (`PBKDF2-SHA1`). |
+| **Utilidades de consola en NetBSD** | Scripts adaptados y persistidos en `/mnt/Flash/` para ambos routers: `neofetch` informativo con logo ASCII de Apple y telemetría de cooler/sensores, y comando `arch` para consulta de arquitectura de CPU. |
+| **Automontaje persistente de AirDisk USB** | Detección automática y montaje de pendrives en formato Apple HFS+ (`/Volumes/Kingston` y `/Volumes/dk0`) con soporte para compartir en red (SMB y AFP). |
+| **Acceso SSH simplificado** | Configuración de claves y perfiles para ingresar directamente con `ssh AramisAirPort5Gen` o `ssh AramisAirPort2Gen` sin contraseñas ni parámetros `-o`. |
 | **Apagado real de radio Wi-Fi** | Desactivación física de la emisión de radio modificando el diccionario binario `WiFi.radios[0]` (`raWM = 0`) y recarga inmediata con `acRI`. |
 | **Telemetría exacta de AirDisk (MaSt)** | Lectura en vivo de particiones HFS+, gigabytes usados, gigabytes libres y barra de porcentaje real de ocupación de discos USB conectados. |
 | **Telemetría WAN de Internet** | Pop-up informativo con IP pública real, puerta de enlace, DNS primario/secundario, ubicación geográfica (ciudad/país) y nombre de ISP. |
@@ -36,7 +39,6 @@ http://localhost:3000
 | **Reconocimiento inteligente de modelos e imágenes** | Catálogo canónico de Apple (`syAP` 3 a 120 y `_device-info`) con asignación dinámica de imágenes (Torre AC, Plana N, Time Capsule, Express y UFO) y selector manual. |
 | **Topología interactiva** | Visualización fiel con líneas blancas estilo Apple conectando Internet con estaciones base principales y secundarias en paralelo. |
 | **Escaneo en vivo (mDNS/Bonjour)** | Descubrimiento multicast en tiempo real (`224.0.0.251:5353`) y actualización periódica automática de nombres, SSIDs y estados de red. |
-| **Gestión y desvinculación** | Capacidad de olvidar estaciones base offline directamente desde la interfaz y asignación dinámica de jerarquías de red. |
 | **Seguridad y autenticación** | Validación de clave de administración con soporte para autenticación Legacy y SRP. |
 | **Avisos y accesibilidad (30s)** | Notificaciones de error de alto contraste visibles durante 30 segundos con botón de cierre manual y tipografía optimizada (≥15px). |
 | **Gráficos originales de Apple** | Iconos y modelos 3D auténticos de estaciones AirPort Extreme, Time Capsule y Express extraídos de las imágenes oficiales. |
@@ -49,7 +51,6 @@ http://localhost:3000
 AirPortUtility/
 ├── acp/                      # Biblioteca del protocolo de control ACP de Apple
 ├── acp_control.py            # Controlador CLI para verificar, aplicar cambios y leer discos
-├── activar_ssh.sh            # Script para habilitar o deshabilitar acceso SSH root (dbug=0x3000)
 ├── data/
 │   └── devices.json          # Almacén de configuración y estado persistente
 ├── public/
@@ -59,8 +60,13 @@ AirPortUtility/
 │   ├── js/
 │   │   └── app.js            # Lógica reactiva de interfaz, popovers, discos y modales
 │   └── index.html            # Interfaz gráfica principal
+├── Scripts/
+│   ├── activar_ssh.sh        # Script para habilitar/deshabilitar acceso SSH root (dbug=0x3000)
+│   ├── configurar_prompts_ssh.sh # Instalador de prompts interactivos y banners de bienvenida
+│   └── neofetch_airport.sh   # Utilidad informativa Neofetch para NetBSD evbarm
+├── PROCESADORES_AIRPORT.md   # Documentación técnica de CPUs ARM, coma flotante y ABIs
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.5.0)
+├── package.json              # Configuración y dependencias (v1.6.0)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```
@@ -80,10 +86,14 @@ node server.js
 python3 acp_control.py -a disks -t 172.21.5.133 -p juanmaioli506
 
 # Habilitar acceso root por SSH (puerto 22) en ambos equipos AirPort
-./activar_ssh.sh
+./Scripts/activar_ssh.sh
 
 # Deshabilitar acceso SSH en ambos equipos AirPort
-./activar_ssh.sh --off
+./Scripts/activar_ssh.sh --off
+
+# Conectar a los AirPort directamente por terminal (sin opciones ni password)
+ssh AramisAirPort5Gen
+ssh AramisAirPort2Gen
 
 # Reiniciar la estación base físicamente
 python3 reboot.py -t 172.21.5.133 -p juanmaioli506
