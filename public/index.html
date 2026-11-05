@@ -552,34 +552,82 @@
           <div class="form-group">
             <label for="selectRouterMode">Modo del router:</label>
             <select id="selectRouterMode" class="mac-select">
+              <option value="bridge">Desactivado (Modo puente)</option>
               <option value="nat_dhcp">DHCP y NAT</option>
               <option value="dhcp_only">Sólo DHCP</option>
-              <option value="bridge">Desactivado (Modo puente)</option>
             </select>
           </div>
-          <div class="form-group">
-            <label for="inputDhcpRange">Rango de DHCP:</label>
-            <input type="text" id="inputDhcpRange" class="mac-input monospace" value="10.0.1.2 a 10.0.1.200">
+
+          <!-- Mensaje explicativo cuando está en Modo Puente (Bridge) -->
+          <div class="wireless-info-card" id="routerBridgeNotice" style="display: none;">
+            <span class="wireless-info-icon">🌉</span>
+            <div>
+              <strong>Desactivado (Modo puente)</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #555;">
+                Esta estación base no distribuye direcciones IP ni gestiona DHCP o NAT. Los equipos conectados recibirán sus direcciones IP directamente del router principal de la red.
+              </p>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Reservas DHCP:</label>
-            <div class="mini-table-box">
-              <table class="mac-table">
-                <thead>
-                  <tr>
-                    <th>Descripción</th>
-                    <th>Dirección MAC</th>
-                    <th>Dirección IP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Impresora AirPrint</td>
-                    <td class="monospace">00:11:22:33:44:55</td>
-                    <td class="monospace">10.0.1.99</td>
-                  </tr>
-                </tbody>
-              </table>
+
+          <!-- Mensaje explicativo cuando está en DHCP y NAT -->
+          <div class="wireless-info-card" id="routerNatDhcpNotice" style="display: none;">
+            <span class="wireless-info-icon">🌐</span>
+            <div>
+              <strong>DHCP y NAT activos</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #555;">
+                La estación base comparte una única dirección IP pública con todos los clientes y asigna direcciones IP privadas de manera automática mediante DHCP.
+              </p>
+            </div>
+          </div>
+
+          <!-- Mensaje explicativo cuando está en Sólo DHCP -->
+          <div class="wireless-info-card" id="routerDhcpOnlyNotice" style="display: none;">
+            <span class="wireless-info-icon">🔀</span>
+            <div>
+              <strong>Sólo DHCP activo</strong>
+              <p style="margin-top: 4px; font-size: 15px; color: #555;">
+                La estación base distribuye direcciones IP a clientes locales mediante DHCP sin realizar traducción de direcciones de red (NAT).
+              </p>
+            </div>
+          </div>
+
+          <!-- Opciones de DHCP y reservas (Solo para DHCP y NAT o Sólo DHCP) -->
+          <div id="routerDhcpSettingsBox">
+            <div class="form-group">
+              <label for="selectDhcpSubnet">Rango de subred DHCP:</label>
+              <select id="selectDhcpSubnet" class="mac-select">
+                <option value="10.0.1">10.0.1.2 a 10.0.1.200 (Predeterminado de Apple)</option>
+                <option value="192.168.1">192.168.1.2 a 192.168.1.200</option>
+                <option value="172.16.1">172.16.1.2 a 172.16.1.200</option>
+                <option value="custom">Personalizado...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="inputDhcpRange">Rango de DHCP:</label>
+              <input type="text" id="inputDhcpRange" class="mac-input monospace" value="10.0.1.2 a 10.0.1.200">
+              <small class="form-help">Intervalo de direcciones IP que asignará el servidor DHCP del AirPort.</small>
+            </div>
+            <div class="form-group">
+              <label>Reservas DHCP:</label>
+              <div class="mini-table-box">
+                <table class="mac-table">
+                  <thead>
+                    <tr>
+                      <th>Descripción</th>
+                      <th>Dirección MAC</th>
+                      <th>Dirección IP</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dhcpReservationsTableBody">
+                    <tr>
+                      <td>Impresora AirPrint</td>
+                      <td class="monospace">00:11:22:33:44:55</td>
+                      <td class="monospace">10.0.1.99</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <small class="form-help">Asigna direcciones IP estáticas específicas según la dirección MAC del equipo.</small>
             </div>
           </div>
         </div>

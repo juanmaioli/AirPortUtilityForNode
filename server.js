@@ -642,8 +642,8 @@ async function syncDiscoveredToData(discovered) {
         || ((discDev.name && discDev.name !== 'AirPort Base Station') ? discDev.name : (cur.name || discDev.name));
 
       data.devices[existingIdx] = {
-        ...cur,
         ...discDev,
+        ...cur,
         name: updatedName,
         ssid: userSsid,
         ssid5GHz: (hwWifi && hwWifi.ssid5GHz) || cur.ssid5GHz || `${userSsid || 'Red'} 5GHz`,
@@ -654,13 +654,15 @@ async function syncDiscoveredToData(discovered) {
         channel5: (hwWifi && hwWifi.channel5) || cur.channel5 || 'auto',
         hiddenNetwork: hwWifi ? !!hwWifi.hiddenNetwork : !!cur.hiddenNetwork,
         wirelessPassword: (hwWifi && hwWifi.wirelessPassword) || cur.wirelessPassword || '',
-        model: discDev.model || cur.model,
-        modelName: discDev.modelName || cur.modelName,
-        image: discDev.image || cur.image,
+        model: cur.model || discDev.model,
+        modelName: cur.modelName || discDev.modelName,
+        image: cur.image || discDev.image,
         syAP: discDev.syAP || cur.syAP,
         isFactoryDefault: !!discDev.isFactoryDefault,
         hasPublicPassword: !!discDev.hasPublicPassword,
         wirelessMode: userMode,
+        routerMode: cur.routerMode || discDev.routerMode || 'bridge',
+        dhcpRange: cur.dhcpRange || discDev.dhcpRange || '10.0.1.2 a 10.0.1.200',
         disks: mergedDisks,
         fileSharing: mergedDisks.length > 0,
         led: discDev.led || 'green',

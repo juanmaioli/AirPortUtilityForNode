@@ -274,6 +274,29 @@ function initEventListeners() {
     updateWirelessModeUI();
   });
 
+  // Eventos de la pestaña Red
+  const selectRouterMode = document.getElementById('selectRouterMode');
+  if (selectRouterMode) {
+    selectRouterMode.addEventListener('change', () => {
+      updateRouterModeUI();
+    });
+  }
+
+  const selectDhcpSubnet = document.getElementById('selectDhcpSubnet');
+  if (selectDhcpSubnet) {
+    selectDhcpSubnet.addEventListener('change', () => {
+      const inputDhcp = document.getElementById('inputDhcpRange');
+      if (!inputDhcp) return;
+      if (selectDhcpSubnet.value === '10.0.1') {
+        inputDhcp.value = '10.0.1.2 a 10.0.1.200';
+      } else if (selectDhcpSubnet.value === '192.168.1') {
+        inputDhcp.value = '192.168.1.2 a 192.168.1.200';
+      } else if (selectDhcpSubnet.value === '172.16.1') {
+        inputDhcp.value = '172.16.1.2 a 172.16.1.200';
+      }
+    });
+  }
+
   const selectDiscoveredSsids = document.getElementById('selectDiscoveredSsids');
   selectDiscoveredSsids.addEventListener('change', () => {
     const boxOtherSsid = document.getElementById('boxOtherSsid');
@@ -449,6 +472,25 @@ function updateWirelessModeUI(currentSsid = null) {
     if (boxAllowEthernetClients) boxAllowEthernetClients.style.display = 'none';
     if (wirelessOptionsDetails) wirelessOptionsDetails.style.display = 'block';
     if (guestNetworkOuterBox) guestNetworkOuterBox.style.display = 'block';
+  }
+}
+
+// Actualizar la interfaz de la pestaña Red según el modo de router seleccionado
+function updateRouterModeUI() {
+  const selectMode = document.getElementById('selectRouterMode');
+  const mode = selectMode ? selectMode.value : 'bridge';
+
+  const routerBridgeNotice = document.getElementById('routerBridgeNotice');
+  const routerNatDhcpNotice = document.getElementById('routerNatDhcpNotice');
+  const routerDhcpOnlyNotice = document.getElementById('routerDhcpOnlyNotice');
+  const routerDhcpSettingsBox = document.getElementById('routerDhcpSettingsBox');
+
+  if (routerBridgeNotice) routerBridgeNotice.style.display = (mode === 'bridge') ? 'flex' : 'none';
+  if (routerNatDhcpNotice) routerNatDhcpNotice.style.display = (mode === 'nat_dhcp') ? 'flex' : 'none';
+  if (routerDhcpOnlyNotice) routerDhcpOnlyNotice.style.display = (mode === 'dhcp_only') ? 'flex' : 'none';
+
+  if (routerDhcpSettingsBox) {
+    routerDhcpSettingsBox.style.display = (mode === 'bridge') ? 'none' : 'block';
   }
 }
 
@@ -1215,8 +1257,28 @@ function openEditModal(dev) {
   // Actualizar visibilidad y campos según el modo inalámbrico (off / create / extend / join)
   updateWirelessModeUI(dev.ssid);
 
-  document.getElementById('selectRouterMode').value = dev.routerMode || 'nat_dhcp';
-  document.getElementById('inputDhcpRange').value = dev.dhcpRange || '10.0.1.2 a 10.0.1.200';
+  const routerModeVal = dev.routerMode || 'bridge';
+  const selectRouterMode = document.getElementById('selectRouterMode');
+  if (selectRouterMode) selectRouterMode.value = routerModeVal;
+
+  const currentDhcpRange = dev.dhcpRange || '10.0.1.2 a 10.0.1.200';
+  const inputDhcpRange = document.getElementById('inputDhcpRange');
+  if (inputDhcpRange) inputDhcpRange.value = currentDhcpRange;
+
+  const selectDhcpSubnet = document.getElementById('selectDhcpSubnet');
+  if (selectDhcpSubnet) {
+    if (currentDhcpRange.startsWith('10.0.1')) {
+      selectDhcpSubnet.value = '10.0.1';
+    } else if (currentDhcpRange.startsWith('192.168.1')) {
+      selectDhcpSubnet.value = '192.168.1';
+    } else if (currentDhcpRange.startsWith('172.16.1')) {
+      selectDhcpSubnet.value = '172.16.1';
+    } else {
+      selectDhcpSubnet.value = 'custom';
+    }
+  }
+
+  updateRouterModeUI();
 
   // Opciones de uso compartido de discos
   const checkFileSharing = document.getElementById('checkFileSharing');
