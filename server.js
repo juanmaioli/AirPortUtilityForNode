@@ -4,7 +4,8 @@ const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
 const net = require('net');
-const { execFile } = require('child_process');
+const dns = require('dns');
+const { execFile, execSync } = require('child_process');
 
 const http = require('http');
 
@@ -473,7 +474,162 @@ function scanAirPort(timeoutMs = 1500) {
   });
 }
 
-// Caché de telemetría de hardware obtenida vía ACP (MaSt + WiFi + syNm) para no saturar el puerto 5009
+// Resolución y caché de clientes de red
+const clientHostnameCache = new Map();
+const clientIpCache = new Map();
+const CLIENTS_CACHE_FILE = path.join(__dirname, 'data', 'clients_cache.json');
+
+function loadClientsCache() {
+  try {
+    if (fs.existsSync(CLIENTS_CACHE_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(CLIENTS_CACHE_FILE, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.ips) {
+          for (const [k, v] of Object.entries(parsed.ips)) clientIpCache.set(k.toLowerCase(), v);
+        }
+        if (parsed.names) {
+          for (const [k, v] of Object.entries(parsed.names)) clientHostnameCache.set(k, v);
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+function saveClientsCache() {
+  try {
+    const obj = {
+      ips: Object.fromEntries(clientIpCache),
+      names: Object.fromEntries(clientHostnameCache)
+    };
+    fs.writeFileSync(CLIENTS_CACHE_FILE, JSON.stringify(obj, null, 2));
+  } catch (_) {}
+}
+
+loadClientsCache();
+
+function getArpTable() {
+  const map = new Map();
+  try {
+    const arpData = fs.readFileSync('/proc/net/arp', 'utf8');
+    const lines = arpData.split('\n').slice(1);
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 4) {
+        const ip = parts[0];
+        const mac = parts[3].toLowerCase();
+        if (mac && mac !== '00:00:00:00:00:00') {
+          map.set(mac, ip);
+        }
+      }
+    }
+  } catch (_) {}
+  return map;
+}
+
+function resolveHostName(ip) {
+  return new Promise((resolve) => {
+    execFile('avahi-resolve', ['-a', ip], { timeout: 1000 }, (err, stdout) => {
+      if (!err && stdout) {
+        const parts = stdout.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const host = parts[1].replace(/\.local\.?$/i, '').trim();
+          if (host) return resolve(host);
+        }
+      }
+      dns.reverse(ip, (err2, hostnames) => {
+        if (!err2 && hostnames && hostnames.length > 0) {
+          const cleanHost = hostnames[0].split('.')[0].trim();
+          if (cleanHost) return resolve(cleanHost);
+        }
+        resolve(null);
+      });
+    });
+  });
+}
+
+function guessDeviceName(mac, phy, band) {
+  if (!mac) return 'Cliente inalámbrico';
+  const clean = mac.replace(/[:-]/g, '').toLowerCase();
+  const firstByte = parseInt(clean.substring(0, 2), 16);
+  const isPrivate = !isNaN(firstByte) && (firstByte & 2) !== 0;
+  if (isPrivate) {
+    return `Dispositivo móvil (${band || 'Wi-Fi'})`;
+  }
+  return `Dispositivo Wi-Fi (${band || 'Wi-Fi'})`;
+}
+
+async function enrichClients(clients = []) {
+  if (!Array.isArray(clients) || clients.length === 0) return [];
+  const arpMap = getArpTable();
+
+  const hasUnknownIp = clients.some(c => !c.ip && !arpMap.has(c.mac) && !clientIpCache.has(c.mac));
+  if (hasUnknownIp) {
+    try {
+      execSync('ping -b -c 1 -W 1 172.21.5.255 2>/dev/null || true');
+    } catch (_) {}
+    const refreshed = getArpTable();
+    for (const [m, ip] of refreshed.entries()) {
+      arpMap.set(m, ip);
+    }
+  }
+
+  let cacheModified = false;
+  for (const c of clients) {
+    if (c.ip && c.ip.startsWith('10.0.1.')) {
+      c.ip = '';
+      clientIpCache.delete(c.mac);
+      cacheModified = true;
+    }
+
+    if (!c.ip) {
+      const foundIp = arpMap.get(c.mac) || clientIpCache.get(c.mac) || '';
+      if (foundIp && !foundIp.startsWith('10.0.1.')) {
+        c.ip = foundIp;
+        if (!clientIpCache.has(c.mac)) {
+          clientIpCache.set(c.mac, c.ip);
+          cacheModified = true;
+        }
+      } else if (foundIp.startsWith('10.0.1.')) {
+        clientIpCache.delete(c.mac);
+      }
+    } else {
+      if (clientIpCache.get(c.mac) !== c.ip && !c.ip.startsWith('10.0.1.')) {
+        clientIpCache.set(c.mac, c.ip);
+        cacheModified = true;
+      }
+    }
+
+    // Mantener fresco el ARP pingueando al host en segundo plano
+    if (c.ip) {
+      execFile('ping', ['-c', '1', '-W', '1', c.ip], () => {});
+    }
+
+    if (!c.name || c.name === 'Cliente de red' || c.name === 'Cliente inalámbrico' || c.name === 'Cliente Ethernet') {
+      if (c.ip && clientHostnameCache.has(c.ip)) {
+        c.name = clientHostnameCache.get(c.ip);
+      } else if (c.ip) {
+        const hName = await resolveHostName(c.ip);
+        if (hName) {
+          c.name = hName;
+          clientHostnameCache.set(c.ip, hName);
+          cacheModified = true;
+        } else {
+          c.name = guessDeviceName(c.mac, c.phy, c.band);
+        }
+      } else {
+        c.name = guessDeviceName(c.mac, c.phy, c.band);
+      }
+    }
+  }
+
+  if (cacheModified) {
+    saveClientsCache();
+  }
+
+  return clients;
+}
+
+// Caché de telemetría de hardware obtenida vía ACP (MaSt + WiFi + syNm + raSL + dhSL) para no saturar el puerto 5009
 const diskCache = new Map();
 
 function fetchHardwareTelemetry(ip, password, force = false) {
@@ -496,7 +652,9 @@ function fetchHardwareTelemetry(ip, password, force = false) {
             ts: now,
             disks: Array.isArray(res.disks) ? res.disks : [],
             wifi: res.wifi || null,
-            name: res.name || null
+            name: res.name || null,
+            clients: Array.isArray(res.clients) ? res.clients : [],
+            routerMode: res.routerMode || null
           };
           diskCache.set(ip, entry);
           return resolve(entry);
@@ -562,6 +720,17 @@ app.get('/api/devices', async (req, res) => {
             }
             telemetryUpdated = true;
           }
+          if (Array.isArray(hw.clients)) {
+            d.clients = await enrichClients(hw.clients);
+            telemetryUpdated = true;
+          }
+          if (hw.routerMode) {
+            d.routerMode = hw.routerMode;
+            if (d.routerMode === 'bridge') {
+              d.dhcpRange = 'Desactivado (modo puente)';
+            }
+            telemetryUpdated = true;
+          }
         }
       }
 
@@ -611,6 +780,36 @@ app.get('/api/devices', async (req, res) => {
   }
 
   res.json(data);
+});
+
+// Obtener clientes conectados en tiempo real para una estación base específica
+app.get('/api/devices/:id/clients', async (req, res) => {
+  const { id } = req.params;
+  const data = readData();
+  const dev = data.devices.find(d => d.id === id);
+  if (!dev) {
+    return res.status(404).json({ error: 'Estación base no encontrada', clients: [] });
+  }
+
+  if (dev.status === 'offline' || dev.wirelessMode === 'off') {
+    return res.json({ success: true, clients: [] });
+  }
+
+  const targetIp = dev.ipAddress || dev.lanIp || dev.wanIp;
+  const adminPass = req.headers['x-device-password'] || dev.adminPassword || dev.basePassword || '';
+  if (!adminPass) {
+    return res.json({ success: true, clients: dev.clients || [] });
+  }
+
+  try {
+    const hw = await fetchHardwareTelemetry(targetIp, adminPass, true);
+    if (hw && Array.isArray(hw.clients)) {
+      dev.clients = await enrichClients(hw.clients);
+      writeData(data);
+    }
+  } catch (_) {}
+
+  res.json({ success: true, clients: dev.clients || [] });
 });
 
 // Sincronizar en tiempo real los dispositivos descubiertos por mDNS con la base de datos
@@ -861,6 +1060,7 @@ app.put('/api/devices/:id', (req, res) => {
     name: req.body.name,
     basePassword: req.body.basePassword,
     wirelessMode: req.body.wirelessMode,
+    routerMode: req.body.routerMode || dev.routerMode || 'bridge',
     ssid: req.body.ssid,
     enable5GHz: !!req.body.enable5GHz,
     ssid5GHz: req.body.ssid5GHz || '',
@@ -914,9 +1114,13 @@ app.put('/api/devices/:id', (req, res) => {
       dev.basePassword = effectiveAdminPass;
     }
 
+    const finalRouterMode = req.body.routerMode || dev.routerMode || 'bridge';
     data.devices[index] = { 
       ...data.devices[index], 
       ...req.body,
+      routerMode: finalRouterMode,
+      dhcpRange: finalRouterMode === 'bridge' ? 'Desactivado (modo puente)' : (req.body.dhcpRange || data.devices[index].dhcpRange),
+      clients: req.body.wirelessMode === 'off' ? [] : (data.devices[index].clients || []),
       adminPassword: dev.adminPassword,
       basePassword: dev.basePassword,
       status: acpResult.success ? 'restarting' : 'normal',

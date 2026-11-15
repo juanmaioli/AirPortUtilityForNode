@@ -2,7 +2,7 @@
 
 [Documentación oficial de Apple AirPort](https://support.apple.com/es-es/HT208084)
 
-Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility de Apple OS X) desarrollada en **Node.js** y **Python** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, control y gestión de hardware real mediante el protocolo nativo **ACP** (puerto `5009`), telemetría exacta de almacenamiento USB (**AirDisk**), apagado físico de radio Wi-Fi, utilidades avanzadas en NetBSD (`neofetch`, `arch`, automontaje HFS+) y visualización diagnóstica oficial de Apple.
+Recreación web fiel de la clásica aplicación **Utilidad AirPort** (AirPort Utility de Apple OS X) desarrollada en **Node.js** y **Python** para ejecutarse en el navegador en `http://localhost:3000`. Incluye escaneo mDNS/Bonjour en vivo de estaciones base físicas, control y gestión de hardware real mediante el protocolo nativo **ACP** (puerto `5009`), telemetría de clientes conectados en tiempo real, configuración persistente de modo puente en NetBSD, telemetría exacta de almacenamiento USB (**AirDisk**), apagado físico de radio Wi-Fi, utilidades avanzadas en NetBSD (`neofetch`, `arch`, automontaje HFS+) y visualización diagnóstica oficial de Apple.
 
 ---
 
@@ -26,7 +26,8 @@ http://localhost:3000
 
 | Módulo | Descripción |
 | :--- | :--- |
-| **Pestaña Red interactiva y Modo Puente** | Selector reactivo de modos de router (Desactivado / Modo Puente, DHCP y NAT, y Sólo DHCP) con tarjetas explicativas en tiempo real, selector de presets de subred (`10.0.1.x`, `192.168.1.x`, `172.16.1.x`), conmutación de campos DHCP y preservación frente a sondeos mDNS. |
+| **Monitoreo de clientes en tiempo real** | Detección continua de dispositivos inalámbricos y cableados vía ACP (`raSL` y `dhSL`) combinada con resolución ARP y DNS inverso local, identificación de fabricante por OUI de MAC, calidad de señal RSSI y tasa de transferencia en vivo. |
+| **Pestaña Red interactiva y Modo Puente por Hardware** | Selector reactivo de modos de router (Desactivado / Modo Puente, DHCP y NAT, y Sólo DHCP). Al seleccionar Modo Puente, se reconfiguran las interfaces de red (`bridge0`), se desactivan demonios DHCP/NAT-PMP y se garantiza persistencia en `/mnt/Flash/rc.local`. |
 | **Control de hardware físico (ACP)** | Comunicación nativa por socket TCP en el puerto `5009` para leer y aplicar configuraciones directamente en el router Apple AirPort, con mapeo dinámico de canales 2.4 GHz y 5 GHz (incluyendo DFS), control de selección automática (`raCA`), SSID 5 GHz independiente y cálculo de clave WPA2 PMK (`PBKDF2-SHA1`). |
 | **Utilidades de consola en NetBSD** | Scripts adaptados y persistidos en `/mnt/Flash/` para ambos routers: `neofetch` informativo con logo ASCII de Apple y telemetría de cooler/sensores, y comando `arch` para consulta de arquitectura de CPU. |
 | **Automontaje persistente de AirDisk USB** | Detección automática y montaje de pendrives en formato Apple HFS+ (`/Volumes/Kingston` y `/Volumes/dk0`) con soporte para compartir en red (SMB y AFP). |
@@ -67,7 +68,7 @@ AirPortUtility/
 │   └── neofetch_airport.sh   # Utilidad informativa Neofetch para NetBSD evbarm
 ├── PROCESADORES_AIRPORT.md   # Documentación técnica de CPUs ARM, coma flotante y ABIs
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.6.1)
+├── package.json              # Configuración y dependencias (v1.7.0)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```

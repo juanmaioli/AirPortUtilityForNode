@@ -123,6 +123,75 @@ def do_restart(target, password):
         }
 
 
+def _configure_hardware_bridge(target, mode, password=None):
+    """Configura el conmutador de red y el servicio DHCP directamente en NetBSD del AirPort vía SSH."""
+    try:
+        import subprocess
+        if mode == "bridge":
+            remote_cmds = (
+                "/sbin/brconfig bridge0 add bcmeth1 2>/dev/null; "
+                f"/sbin/ifconfig bcmeth1 delete {target} 2>/dev/null; "
+                "/sbin/ifconfig bridge0 delete 10.0.1.1 2>/dev/null; "
+                f"/sbin/ifconfig bridge0 {target} netmask 255.255.255.0 2>/dev/null; "
+                "/sbin/route delete default 2>/dev/null; "
+                "/sbin/route add default 172.21.5.1 2>/dev/null; "
+                "/sbin/pfctl -d 2>/dev/null; "
+                "/usr/bin/pkill -9 -f dhcpd 2>/dev/null; "
+                "/usr/bin/pkill -9 -f natpmpd 2>/dev/null; "
+                "cat /dev/null > /etc/dhcpd.conf 2>/dev/null; "
+                "rm -f /usr/sbin/dhcpd 2>/dev/null; "
+                'printf "#!/bin/sh\\nexit 0\\n" > /usr/sbin/dhcpd; '
+                "chmod 755 /usr/sbin/dhcpd 2>/dev/null; "
+                "rm -f /usr/sbin/natpmpd 2>/dev/null; "
+                'printf "#!/bin/sh\\nexit 0\\n" > /usr/sbin/natpmpd; '
+                "chmod 755 /usr/sbin/natpmpd 2>/dev/null; "
+                "printf '#!/bin/sh\\nsleep 5\\n/sbin/brconfig bridge0 add bcmeth1 2>/dev/null\\n"
+                f"/sbin/ifconfig bcmeth1 delete {target} 2>/dev/null\\n"
+                "/sbin/ifconfig bridge0 delete 10.0.1.1 2>/dev/null\\n"
+                f"/sbin/ifconfig bridge0 {target} netmask 255.255.255.0 2>/dev/null\\n"
+                "/sbin/route delete default 2>/dev/null\\n"
+                "/sbin/route add default 172.21.5.1 2>/dev/null\\n"
+                "/sbin/pfctl -d 2>/dev/null\\n"
+                "/usr/bin/pkill -9 -f dhcpd 2>/dev/null\\n"
+                "/usr/bin/pkill -9 -f natpmpd 2>/dev/null\\n"
+                "cat /dev/null > /etc/dhcpd.conf 2>/dev/null\\n"
+                "rm -f /usr/sbin/dhcpd 2>/dev/null\\n"
+                'printf \"#!/bin/sh\\\\nexit 0\\\\n\" > /usr/sbin/dhcpd\\n'
+                "chmod 755 /usr/sbin/dhcpd 2>/dev/null\\n"
+                "rm -f /usr/sbin/natpmpd 2>/dev/null\\n"
+                'printf \"#!/bin/sh\\\\nexit 0\\\\n\" > /usr/sbin/natpmpd\\n'
+                "chmod 755 /usr/sbin/natpmpd 2>/dev/null\\n' > /mnt/Flash/rc.local; "
+                "chmod 755 /mnt/Flash/rc.local 2>/dev/null"
+            )
+        else:
+            remote_cmds = (
+                "rm -f /usr/sbin/dhcpd; "
+                "ln /sbin/ACPd /usr/sbin/dhcpd 2>/dev/null || true; "
+                "rm -f /usr/sbin/natpmpd; "
+                "ln /sbin/ACPd /usr/sbin/natpmpd 2>/dev/null || true; "
+                "/sbin/pfctl -e 2>/dev/null || true; "
+                "/sbin/brconfig bridge0 delete bcmeth1 2>/dev/null || true; "
+                "/sbin/ifconfig bridge0 10.0.1.1 netmask 255.255.255.0 2>/dev/null || true; "
+                "echo '#!/bin/sh' > /mnt/Flash/rc.local; "
+                "chmod 755 /mnt/Flash/rc.local"
+            )
+
+        ssh_opts = [
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=5",
+            "-o", "HostKeyAlgorithms=+ssh-rsa",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"
+        ]
+
+        # Intentar primero con clave pública
+        res = subprocess.run(["ssh"] + ssh_opts + [f"root@{target}", remote_cmds], capture_output=True, timeout=8)
+        if res.returncode != 0 and password:
+            # Fallback usando sshpass si la clave pública falló o pidió contraseña
+            subprocess.run(["sshpass", "-p", str(password), "ssh"] + ssh_opts + [f"root@{target}", remote_cmds], capture_output=True, timeout=8)
+    except Exception:
+        pass
+
+
 def do_apply(target, password, config):
     try:
         updated_keys = []
@@ -232,6 +301,10 @@ def do_apply(target, password, config):
         if "basePassword" in config and config["basePassword"] and str(config["basePassword"]) != password:
             props_to_set["syPW"] = ACPProperty("syPW", str(config["basePassword"]))
 
+        if "routerMode" in config and config["routerMode"]:
+            rmode = str(config["routerMode"]).strip()
+            props_to_set["naFl"] = ACPProperty("naFl", 0 if rmode == "bridge" else 1)
+
         active_password = password
         # Paso 3: Escribir cada propiedad en su propia conexión limpia
         for k, prop_obj in props_to_set.items():
@@ -255,6 +328,9 @@ def do_apply(target, password, config):
             updated_keys.append("acRI")
         except Exception:
             pass
+
+        if "routerMode" in config and config["routerMode"]:
+            _configure_hardware_bridge(target, config["routerMode"], password=password)
 
         return {
             "success": True,
@@ -281,10 +357,22 @@ def _format_mib(mib_val):
     return f"{int(mib_val)} MB"
 
 
+def _to_signed_64(val):
+    if val is None:
+        return 0
+    try:
+        n = int(val)
+        if n >= (1 << 63):
+            return n - (1 << 64)
+        return n
+    except Exception:
+        return 0
+
+
 def do_disks(target, password):
     try:
         def _read_telemetry(client):
-            props = client.get_properties(["MaSt", "WiFi", "syNm"])
+            props = client.get_properties(["MaSt", "WiFi", "syNm", "raSL", "dhSL", "naFl"])
             res = {}
             for p in (props or []):
                 res[p.name] = p.value
@@ -393,9 +481,104 @@ def do_disks(target, password):
                     "wirelessPassword": wpass
                 }
 
-        return {"success": True, "disks": disks_out, "wifi": wifi_out, "name": sy_nm}
+        # Extraer clientes inalámbricos (raSL) y clientes DHCP (dhSL)
+        clients_out = []
+        seen_macs = set()
+
+        if raw.get("raSL"):
+            try:
+                rasl_dict = CFLBinaryPListParser.parse(raw["raSL"])
+                if isinstance(rasl_dict, (dict, OrderedDict)):
+                    for iface, stations in rasl_dict.items():
+                        if not isinstance(stations, list):
+                            continue
+                        for st in stations:
+                            if not isinstance(st, (dict, OrderedDict)):
+                                continue
+                            mac = str(st.get("macAddress", "")).strip().lower()
+                            if not mac:
+                                continue
+                            seen_macs.add(mac)
+                            rssi = _to_signed_64(st.get("rssi", 0))
+                            rate = int(st.get("txrate", 0) or 0)
+                            phy = str(st.get("phy_mode", ""))
+
+                            if rssi >= -55:
+                                sig_text = f"Excelente ({rssi} dBm)"
+                            elif rssi >= -67:
+                                sig_text = f"Muy buena ({rssi} dBm)"
+                            elif rssi >= -75:
+                                sig_text = f"Buena ({rssi} dBm)"
+                            elif rssi >= -85:
+                                sig_text = f"Regular ({rssi} dBm)"
+                            elif rssi < 0:
+                                sig_text = f"Débil ({rssi} dBm)"
+                            else:
+                                sig_text = "Excelente"
+
+                            band_str = "5 GHz" if ("wlan0" in str(iface).lower() or "ac" in phy.lower() or rate > 300) else "2.4 GHz"
+
+                            clients_out.append({
+                                "mac": mac,
+                                "rssi": rssi,
+                                "signal": sig_text,
+                                "rate": f"{rate} Mbps" if rate > 0 else "",
+                                "phy": phy,
+                                "band": band_str,
+                                "interface": str(iface),
+                                "type": "wireless"
+                            })
+            except Exception:
+                pass
+
+        if raw.get("dhSL"):
+            try:
+                dhsl_data = CFLBinaryPListParser.parse(raw["dhSL"])
+                leases = []
+                if isinstance(dhsl_data, dict):
+                    leases = dhsl_data.get("leases", []) if "leases" in dhsl_data else list(dhsl_data.values())
+                elif isinstance(dhsl_data, list):
+                    leases = dhsl_data
+
+                for l in leases:
+                    if not isinstance(l, (dict, OrderedDict)):
+                        continue
+                    lmac = str(l.get("macAddress") or l.get("hwAddress") or l.get("mac") or "").strip().lower()
+                    lip = str(l.get("ipAddress") or l.get("ip") or "").strip()
+                    lname = str(l.get("clientName") or l.get("name") or l.get("hostname") or "").strip()
+                    if not lmac:
+                        continue
+                    if lmac in seen_macs:
+                        for c in clients_out:
+                            if c["mac"] == lmac:
+                                if lip:
+                                    c["ip"] = lip
+                                if lname:
+                                    c["name"] = lname
+                    else:
+                        seen_macs.add(lmac)
+                        clients_out.append({
+                            "mac": lmac,
+                            "ip": lip,
+                            "name": lname or "Cliente Ethernet",
+                            "rssi": 0,
+                            "signal": "Cableado (Ethernet)",
+                            "rate": "1 Gbps",
+                            "phy": "Ethernet",
+                            "band": "LAN",
+                            "interface": "eth0",
+                            "type": "wired"
+                        })
+            except Exception:
+                pass
+
+        router_mode = "bridge"
+        if "naFl" in raw and raw["naFl"] is not None:
+            router_mode = "nat_dhcp" if int(raw["naFl"]) == 1 else "bridge"
+
+        return {"success": True, "disks": disks_out, "wifi": wifi_out, "name": sy_nm, "clients": clients_out, "routerMode": router_mode}
     except Exception as e:
-        return {"success": False, "error": str(e), "disks": [], "wifi": None}
+        return {"success": False, "error": str(e), "disks": [], "wifi": None, "clients": [], "routerMode": "bridge"}
 
 
 def main():

@@ -251,6 +251,11 @@ function initEventListeners() {
       btn.setAttribute('aria-selected', 'true');
       const targetPane = document.getElementById(btn.dataset.tab);
       if (targetPane) targetPane.classList.add('active');
+
+      if (btn.dataset.tab === 'tab-clients' && state.activeEditingDevice) {
+        renderClientsList(state.activeEditingDevice.clients || []);
+        fetchDeviceClients(state.activeEditingDevice.id);
+      }
     });
   });
 
@@ -501,7 +506,7 @@ function renderClientsList(clients = []) {
   if (badge) badge.textContent = clients.length;
   if (!tbody) return;
 
-  const currentKey = clients.map(c => `${c.ip}-${c.mac}`).join('|');
+  const currentKey = clients.map(c => `${c.ip || ''}-${c.mac || ''}-${c.signal || ''}-${c.rate || ''}-${c.name || ''}`).join('|');
   if (tbody.dataset.lastKey === currentKey) {
     return;
   }
@@ -519,15 +524,39 @@ function renderClientsList(clients = []) {
   } else {
     clients.forEach(c => {
       const tr = document.createElement('tr');
+      const sigColor = (c.rssi && c.rssi < -75) ? '#f5a623' : '#007aff';
+      const sigDetail = c.rate ? `${escapeHtml(c.signal || '')} • ${escapeHtml(c.rate)}` : escapeHtml(c.signal || 'Excelente');
+      const bandBadge = c.band ? `<span style="font-size: 11px; padding: 2px 6px; background: #eef3fc; border: 1px solid #c7d8f5; border-radius: 4px; color: #005bb5; margin-left: 6px;">${escapeHtml(c.band)}</span>` : '';
       tr.innerHTML = `
-        <td><strong style="color: #111;">${escapeHtml(c.name || 'Cliente de red')}</strong></td>
+        <td><strong style="color: #111;">${escapeHtml(c.name || 'Cliente inalámbrico')}</strong>${bandBadge}</td>
         <td><span class="monospace">${escapeHtml(c.ip || '--')}</span></td>
         <td><span class="monospace" style="color: #666;">${escapeHtml(c.mac || '--')}</span></td>
-        <td><span style="display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: #007aff;">📶 ${escapeHtml(c.signal || 'Excelente')}</span></td>
+        <td><span style="display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: ${sigColor};">📶 ${sigDetail}</span></td>
       `;
       tbody.appendChild(tr);
     });
   }
+}
+
+async function fetchDeviceClients(deviceId) {
+  if (!deviceId || deviceId === 'internet') return;
+  const pass = sessionUnlockedPasswords[deviceId] || localStorage.getItem('airport_keychain_' + deviceId) || '';
+  try {
+    const res = await fetch(`/api/devices/${deviceId}/clients`, {
+      headers: pass ? { 'x-device-password': pass } : {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.clients)) {
+        if (state.activeEditingDevice && state.activeEditingDevice.id === deviceId) {
+          state.activeEditingDevice.clients = data.clients;
+          renderClientsList(data.clients);
+        }
+        const d = state.devices.find(x => x.id === deviceId);
+        if (d) d.clients = data.clients;
+      }
+    }
+  } catch (_) {}
 }
 
 let lastDataFingerprint = '';
@@ -535,8 +564,14 @@ let lastDataFingerprint = '';
 // Sondeo continuo en vivo cada 2.5 segundos
 function startLivePolling() {
   setInterval(async () => {
-    // Si hay un modal de edición abierto, pausar para no pisar campos de texto
-    if (editModalBackdrop.style.display === 'flex' || addDeviceModalBackdrop.style.display === 'flex') {
+    // Si hay un modal de edición abierto, consultar clientes en vivo sin tocar inputs
+    if (editModalBackdrop.style.display === 'flex') {
+      if (state.activeEditingDevice && state.activeEditingDevice.id !== 'internet') {
+        fetchDeviceClients(state.activeEditingDevice.id);
+      }
+      return;
+    }
+    if (addDeviceModalBackdrop.style.display === 'flex') {
       return;
     }
 
@@ -961,16 +996,18 @@ function openDevicePopover(item) {
     if (rowIsp) rowIsp.style.display = 'none';
 
     if (btnPopoverEdit) btnPopoverEdit.style.display = 'none';
+    const isBridge = item.routerMode === 'bridge';
     document.getElementById('rowIpAddress').style.display = 'flex';
-    document.getElementById('rowLanIp').style.display = 'flex';
-    document.getElementById('rowWanIp').style.display = 'flex';
+    document.getElementById('rowLanIp').style.display = isBridge ? 'none' : 'flex';
+    document.getElementById('rowWanIp').style.display = isBridge ? 'none' : 'flex';
     document.getElementById('rowFirmware').style.display = 'flex';
     document.getElementById('rowMac').style.display = 'flex';
     if (popoverClientsSection) popoverClientsSection.style.display = 'block';
 
-    popoverIp.textContent = item.ipAddress || '10.0.1.1';
-    popoverLanIp.textContent = item.lanIp || item.ipAddress || '10.0.1.1';
-    popoverWanIp.textContent = item.wanIp || '172.21.5.1';
+    const mainIp = item.ipAddress || item.lanIp || item.wanIp || '10.0.1.1';
+    popoverIp.textContent = mainIp;
+    popoverLanIp.textContent = item.lanIp || mainIp;
+    popoverWanIp.textContent = item.wanIp || mainIp;
     popoverFirmware.textContent = item.firmwareVersion || '7.9.1';
     popoverMac.textContent = item.macAddress || '00:00:00:00:00:00';
 
@@ -1352,6 +1389,9 @@ function openEditModal(dev) {
 
   // Llenar Clientes Conectados
   renderClientsList(dev.clients || []);
+  if (dev.id !== 'internet') {
+    fetchDeviceClients(dev.id);
+  }
 
   // Llenar AirPlay
   document.getElementById('checkAirplayEnabled').checked = dev.airplay !== false;
