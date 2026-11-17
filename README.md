@@ -68,7 +68,7 @@ AirPortUtility/
 │   └── neofetch_airport.sh   # Utilidad informativa Neofetch para NetBSD evbarm
 ├── PROCESADORES_AIRPORT.md   # Documentación técnica de CPUs ARM, coma flotante y ABIs
 ├── reboot.py                 # Script de reinicio físico de hardware vía ACP (acRB)
-├── package.json              # Configuración y dependencias (v1.7.0)
+├── package.json              # Configuración y dependencias (v1.7.1)
 ├── server.js                 # Servidor Express, escáner mDNS y puente con hardware ACP
 └── README.md                 # Documentación del proyecto
 ```
